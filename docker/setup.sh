@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -e
+LOCATION=$1
 
 # Define file paths
-TODO_FILE="/home/newuser/todo.csv"
-BREAK_FILE="/home/newuser/break.csv"
-README_FILE="/home/newuser/README.md"
+TODO_FILE="$LOCATION/todo.csv"
+BREAK_FILE="$LOCATION/break.csv"
+README_FILE="$HOME/README.md"
 
 # Function to pick a random line from a CSV file
 pick_random_line() {
@@ -24,7 +25,7 @@ echo "Selected Task: $TODO_TASK (Time: $TODO_TIME mins, Difficulty: $TODO_DIFFIC
 echo "Selected Sabotage: $BREAK_TASK (Time: $BREAK_TIME mins, Difficulty: $BREAK_DIFFICULTY/10)"
 
 # Create a README file for the user
-cat <<EOF > "$README_FILE"
+cat <<EOF > "$HOME/$README_FILE"
 # Exam Instructions
 
 ## Your Task:
@@ -39,5 +40,5 @@ Good luck!
 EOF
 
 # Display the README content
-cat "$README_FILE"
+cat "$HOME/$README_FILE"
 
