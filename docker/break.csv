@@ -1,0 +1,6 @@
+disable firewall,5,6
+delete /etc/hosts,10,7
+corrupt ssh config,15,8
+remove user permissions,20,9
+disable sudo access,10,7
+

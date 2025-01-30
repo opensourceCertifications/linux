@@ -1,0 +1,6 @@
+install nginx,10,5
+configure firewall,15,7
+create a user,5,3
+install docker,20,6
+setup ssh access,15,8
+
