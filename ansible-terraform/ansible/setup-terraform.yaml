@@ -1,6 +1,6 @@
 - name: Setup Terraform Environment
   hosts: localhost
-  become: yes
+  become: true 
   tasks:
 
     - name: Install dependencies (KVM, Libvirt, Terraform)
@@ -26,6 +26,18 @@
       args:
         creates: /etc/apt/sources.list.d/hashicorp.list
 
+    # you wanna install in line with the docs
+    # https://developer.hashicorp.com/terraform/install?product_intent=terraform 
+    # brew tap hashicorp/tap
+    # brew install hashicorp/tap/terraform
+    # looking at homebrew docs you install it via curl
+    # https://brew.sh/
+    # /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    # ansible has a curl module
+    # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/uri_module.html#examples
+    # once you've installed home brew you can then use the ansible homebrew module to install terraform
+    # https://docs.ansible.com/ansible/latest/collections/community/general/homebrew_module.html#examples
+
     - name: Install Terraform
       apt:
         name: terraform
@@ -44,6 +56,7 @@
         state: started
         enabled: yes
 
+    # change this to almalinux
     - name: Download Ubuntu cloud image
       get_url:
         url: https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
