@@ -1,0 +1,13 @@
+# Ignore Terraform state files
+*.tfstate
+*.tfstate.*
+terraform.tfstate
+terraform.tfstate.*
+
+tfplan
+
+.terraform.lock.hcl
+
+.terraform/
+
+*.log
