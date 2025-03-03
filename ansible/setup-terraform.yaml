@@ -2,6 +2,12 @@
   hosts: localhost
   become: true
   tasks:
+    - name: Ensure required Ansible collections are installed
+      ansible.builtin.command: ansible-galaxy collection install -r requirements.yml
+      args:
+        chdir: "{{ playbook_dir }}"  # Ensures it runs in the same directory as the playbook
+      changed_when: false
+
 
     - name: Install dependencies (KVM, Libvirt, Terraform)
       ansible.builtin.package:
@@ -17,41 +23,21 @@
         update_cache: true
       when: ansible_pkg_mgr is defined
 
-
-    - name: Add HashiCorp GPG key for the detected package manager
-      block:
-        - name: Debian-based (APT)
-          ansible.builtin.apt_key:
-            url: https://apt.releases.hashicorp.com/gpg
-            keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
-            state: present
-          when: ansible_pkg_mgr == "apt"
-
-        - name: RedHat-based (YUM/DNF)
-          ansible.builtin.rpm_key:
-            key: https://rpm.releases.hashicorp.com/gpg
-            state: present
-          when: ansible_pkg_mgr in ["dnf", "yum"]
-
-        - name: SUSE-based (Zypper)
-          ansible.builtin.rpm_key:
-            key: https://rpm.releases.hashicorp.com/gpg
-            state: present
-          when: ansible_pkg_mgr == "zypper"
-
-    - name: Install Homebrew (if not installed)
-      ansible.builtin.uri:
-        url: https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh
-        method: GET
-        return_content: true
-      register: homebrew_install_script
-
-    - name: Run Homebrew install script
-      ansible.builtin.command: "/bin/bash -c '{{ homebrew_install_script.content | quote }}'"
+    - name: Install Homebrew if not installed
+      ansible.builtin.shell: |
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
       args:
-        creates: /home/linuxbrew/.linuxbrew/bin/brew
+        creates: /home/linuxbrew/.linuxbrew/bin/brew  # ✅ Ensures the command runs only if Homebrew is missing
 
-    - name: Install Terraform via Homebrew community.general.homebrew
+    - name: Ensure Homebrew is in PATH
+      ansible.builtin.lineinfile:
+        path: /etc/profile.d/homebrew.sh
+        line: 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
+        create: true
+        mode: '0644'
+
+    # ✅ Install Terraform via Homebrew
+    - name: Install Terraform via Homebrew
       community.general.homebrew:
         name: terraform
         state: present
@@ -76,21 +62,15 @@
 
     - name: Ensure Terraform directory exists
       ansible.builtin.file:
-        path: /home/{{ ansible_user_id }}/terraform-vm
+        path: "{{ ansible_env.HOME }}/terraform-vm"
         state: directory
         mode: '0755'
 
-    # ✅ STEP 1: Define the storage pool only if it does not exist
-    - name: Check if default Libvirt storage pool exists
-      ansible.builtin.command: virsh pool-info default
-      register: pool_info
-      changed_when: false
-      ignore_errors: true
-
-    - name: Define default Libvirt storage pool if it does not exist
+    - name: Ensure default Libvirt storage pool is defined, started, and enabled
       community.libvirt.virt_pool:
         name: default
-        state: present
+        state: active   # This defines & starts the pool in one step
+        autostart: true
         xml: |
           <pool type='dir'>
             <name>default</name>
@@ -98,28 +78,3 @@
               <path>/var/lib/libvirt/images</path>
             </target>
           </pool>
-      when: pool_info.rc != 0  # Run only if the pool is missing
-
-    # ✅ STEP 2: Start the pool only if it's not already active
-    - name: Check if default Libvirt storage pool is active
-      ansible.builtin.command: virsh pool-list --state active
-      register: active_pools
-      changed_when: false
-
-    - name: Start default Libvirt storage pool if not already running
-      community.libvirt.virt_pool:
-        name: default
-        state: active
-      when: "'default' not in active_pools.stdout"
-
-    # ✅ STEP 3: Enable autostart only if it's not already enabled
-    - name: Check if default Libvirt storage pool is set to autostart
-      ansible.builtin.command: virsh pool-list --autostart
-      register: autostart_pools
-      changed_when: false
-
-    - name: Enable autostart for default Libvirt storage pool if not already enabled
-      community.libvirt.virt_pool:
-        name: default
-        autostart: true
-      when: "'default' not in autostart_pools.stdout"
