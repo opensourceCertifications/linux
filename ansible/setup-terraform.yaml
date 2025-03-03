@@ -54,11 +54,19 @@
         create: true
         mode: '0644'
 
+    # ✅ Check if Terraform is installed (Lint-Friendly)
+    - name: Check if Terraform is installed
+      ansible.builtin.command: which terraform
+      register: terraform_check
+      changed_when: false
+      ignore_errors: true
+
     # ✅ Install Terraform via Homebrew (normal user)
     - name: Install Terraform via Homebrew
       community.general.homebrew:
         name: terraform
         state: present
+      when: terraform_check.rc != 0
 
     # ✅ Modify user groups (requires sudo)
     - name: Add user to libvirt and KVM groups
@@ -91,13 +99,46 @@
         state: directory
         mode: '0755'
 
-    # ✅ Define, start, and enable the Libvirt storage pool (requires sudo)
-    - name: Ensure default Libvirt storage pool is defined, started, and enabled
+    # ✅ Check if Libvirt is running
+    - name: Check if Libvirt is active
+      become: true
+      ansible.builtin.command: systemctl is-active libvirtd
+      register: libvirt_status
+      changed_when: false
+      failed_when: libvirt_status.rc > 1  # Only fail if it's an unexpected error
+
+    # ✅ Restart Libvirt ONLY if it’s not already running
+    - name: Restart Libvirt if needed
+      become: true
+      ansible.builtin.systemd:
+        name: libvirtd
+        state: restarted
+        enabled: true
+      when: libvirt_status.stdout != "active"
+
+    # ✅ Wait for Libvirt to be fully active (5 retries, 3s delay)
+    - name: Wait for Libvirt to become active
+      become: true
+      ansible.builtin.command: systemctl is-active libvirtd
+      register: libvirt_check
+      retries: 5
+      delay: 3
+      until: libvirt_check.stdout == "active"
+
+    # ✅ Check if the default storage pool exists
+    - name: Check if the default storage pool exists
+      become: true
+      ansible.builtin.command: virsh pool-info default
+      register: pool_info
+      changed_when: false
+      ignore_errors: true  # Prevent failure if the pool is missing
+
+    # ✅ Define the storage pool ONLY if it does not exist
+    - name: Define default Libvirt storage pool
       become: true
       community.libvirt.virt_pool:
         name: default
-        state: active   # This defines & starts the pool in one step
-        autostart: true
+        state: present
         xml: |
           <pool type='dir'>
             <name>default</name>
@@ -105,3 +146,13 @@
               <path>/var/lib/libvirt/images</path>
             </target>
           </pool>
+      when: pool_info.rc != 0  # Only create the pool if it is missing
+
+    # ✅ Start and enable the storage pool
+    - name: Start and enable default Libvirt storage pool
+      become: true
+      community.libvirt.virt_pool:
+        name: default
+        state: active
+        autostart: true
+      when: libvirt_check.stdout == "active"
