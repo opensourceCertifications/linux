@@ -1,6 +1,6 @@
 - name: Setup Terraform Environment
   hosts: localhost
-  become: true 
+  become: true
   tasks:
 
     - name: Install dependencies (KVM, Libvirt, Terraform)
@@ -17,32 +17,35 @@
         update_cache: yes
 
     - name: Add HashiCorp GPG key
-      shell: |
-        wget -O- https://apt.releases.hashicorp.com/gpg | gpg --dearmor | tee /usr/share/keyrings/hashicorp-archive-keyring.gpg
+      apt_key:
+        url: https://apt.releases.hashicorp.com/gpg
+        keyring: /usr/share/keyrings/hashicorp-archive-keyring.gpg
+        state: present
 
     - name: Add HashiCorp repository
-      shell: |
-        echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list
-      args:
-        creates: /etc/apt/sources.list.d/hashicorp.list
-
-    # you wanna install in line with the docs
-    # https://developer.hashicorp.com/terraform/install?product_intent=terraform 
-    # brew tap hashicorp/tap
-    # brew install hashicorp/tap/terraform
-    # looking at homebrew docs you install it via curl
-    # https://brew.sh/
-    # /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    # ansible has a curl module
-    # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/uri_module.html#examples
-    # once you've installed home brew you can then use the ansible homebrew module to install terraform
-    # https://docs.ansible.com/ansible/latest/collections/community/general/homebrew_module.html#examples
-
-    - name: Install Terraform
-      apt:
-        name: terraform
+      apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main"
+        filename: hashicorp
         state: present
         update_cache: yes
+
+    - name: Install Homebrew (if not installed)
+      ansible.builtin.uri:
+        url: https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh
+        method: GET
+        return_content: yes
+      register: homebrew_install_script
+
+    - name: Run Homebrew install script
+      ansible.builtin.shell: "/bin/bash -c '{{ homebrew_install_script.content | quote }}'"
+      args:
+        creates: /home/linuxbrew/.linuxbrew/bin/brew
+
+    - name: Install Terraform via Homebrew
+      community.general.homebrew:
+        name: terraform
+        state: present
+        path: /home/linuxbrew/.linuxbrew/bin
 
     - name: Add user to libvirt and KVM groups
       user:
@@ -56,11 +59,10 @@
         state: started
         enabled: yes
 
-    # change this to almalinux
-    - name: Download Ubuntu cloud image
+    - name: Download AlmaLinux cloud image
       get_url:
-        url: https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
-        dest: /var/lib/libvirt/images/ubuntu.qcow2
+        url: https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2
+        dest: /var/lib/libvirt/images/almalinux.qcow2
         mode: '0644'
 
     - name: Ensure Terraform directory exists
@@ -80,3 +82,4 @@
     - name: Enable default Libvirt storage pool to start on boot
       command: virsh pool-autostart default
       ignore_errors: yes
+
