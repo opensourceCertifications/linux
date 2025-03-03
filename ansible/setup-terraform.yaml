@@ -1,15 +1,32 @@
 - name: Setup Terraform Environment
   hosts: localhost
-  become: true
   tasks:
+
+    # ✅ Install missing Ansible collections as the current user (no sudo needed)
     - name: Ensure required Ansible collections are installed
       ansible.builtin.command: ansible-galaxy collection install -r requirements.yml
       args:
-        chdir: "{{ playbook_dir }}"  # Ensures it runs in the same directory as the playbook
+        chdir: "{{ playbook_dir }}"
       changed_when: false
 
+    - name: Ensure required Python packages are installed
+      become: true
+      ansible.builtin.package:
+        name:
+          - python3-lxml  # System package installation
+        state: present
+      when: ansible_pkg_mgr is defined
 
+    - name: Ensure lxml is installed via pip (fallback)
+      ansible.builtin.pip:
+        name: lxml
+        executable: pip3
+      when: ansible_pkg_mgr is not defined  # If system package manager isn't available
+
+
+    # ✅ Install system dependencies (requires sudo)
     - name: Install dependencies (KVM, Libvirt, Terraform)
+      become: true
       ansible.builtin.package:
         name:
           - qemu-kvm
@@ -23,50 +40,60 @@
         update_cache: true
       when: ansible_pkg_mgr is defined
 
+    # ✅ Install Homebrew as a normal user (no sudo required)
     - name: Install Homebrew if not installed
       ansible.builtin.shell: |
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
       args:
-        creates: /home/linuxbrew/.linuxbrew/bin/brew  # ✅ Ensures the command runs only if Homebrew is missing
+        creates: "{{ ansible_env.HOME }}/.linuxbrew/bin/brew"
 
     - name: Ensure Homebrew is in PATH
       ansible.builtin.lineinfile:
-        path: /etc/profile.d/homebrew.sh
-        line: 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"'
+        path: "{{ ansible_env.HOME }}/.profile"
+        line: 'eval "$({{ ansible_env.HOME }}/.linuxbrew/bin/brew shellenv)"'
         create: true
         mode: '0644'
 
-    # ✅ Install Terraform via Homebrew
+    # ✅ Install Terraform via Homebrew (normal user)
     - name: Install Terraform via Homebrew
       community.general.homebrew:
         name: terraform
         state: present
 
+    # ✅ Modify user groups (requires sudo)
     - name: Add user to libvirt and KVM groups
+      become: true
       ansible.builtin.user:
         name: "{{ ansible_user_id }}"
         groups: libvirt,kvm
         append: true
 
+    # ✅ Start and enable Libvirt (requires sudo)
     - name: Start and enable Libvirt
+      become: true
       ansible.builtin.systemd:
         name: libvirtd
         state: started
         enabled: true
 
+    # ✅ Download AlmaLinux cloud image (requires sudo to write to `/var/lib/libvirt/`)
     - name: Download AlmaLinux cloud image
+      become: true
       ansible.builtin.get_url:
         url: https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2
         dest: /var/lib/libvirt/images/almalinux.qcow2
         mode: '0644'
 
+    # ✅ Create Terraform directory as the normal user
     - name: Ensure Terraform directory exists
       ansible.builtin.file:
         path: "{{ ansible_env.HOME }}/terraform-vm"
         state: directory
         mode: '0755'
 
+    # ✅ Define, start, and enable the Libvirt storage pool (requires sudo)
     - name: Ensure default Libvirt storage pool is defined, started, and enabled
+      become: true
       community.libvirt.virt_pool:
         name: default
         state: active   # This defines & starts the pool in one step
