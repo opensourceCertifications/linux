@@ -29,6 +29,7 @@ resource "libvirt_domain" "almalinux-vm" {
 
   network_interface {
     network_name = "default"
+    addresses    = ["192.168.122.100"]
   }
 
   console {
