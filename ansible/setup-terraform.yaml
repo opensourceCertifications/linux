@@ -1,0 +1,158 @@
+- name: Setup Terraform Environment
+  hosts: localhost
+  tasks:
+
+    # ✅ Install missing Ansible collections as the current user (no sudo needed)
+    - name: Ensure required Ansible collections are installed
+      ansible.builtin.command: ansible-galaxy collection install -r requirements.yml
+      args:
+        chdir: "{{ playbook_dir }}"
+      changed_when: false
+
+    - name: Ensure required Python packages are installed
+      become: true
+      ansible.builtin.package:
+        name:
+          - python3-lxml  # System package installation
+        state: present
+      when: ansible_pkg_mgr is defined
+
+    - name: Ensure lxml is installed via pip (fallback)
+      ansible.builtin.pip:
+        name: lxml
+        executable: pip3
+      when: ansible_pkg_mgr is not defined  # If system package manager isn't available
+
+
+    # ✅ Install system dependencies (requires sudo)
+    - name: Install dependencies (KVM, Libvirt, Terraform)
+      become: true
+      ansible.builtin.package:
+        name:
+          - qemu-kvm
+          - libvirt-daemon-system
+          - libvirt-clients
+          - bridge-utils
+          - virt-manager
+          - software-properties-common
+          - gnupg
+        state: present
+        update_cache: true
+      when: ansible_pkg_mgr is defined
+
+    # ✅ Install Homebrew as a normal user (no sudo required)
+    - name: Install Homebrew if not installed
+      ansible.builtin.shell: |
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      args:
+        creates: "{{ ansible_env.HOME }}/.linuxbrew/bin/brew"
+
+    - name: Ensure Homebrew is in PATH
+      ansible.builtin.lineinfile:
+        path: "{{ ansible_env.HOME }}/.profile"
+        line: 'eval "$({{ ansible_env.HOME }}/.linuxbrew/bin/brew shellenv)"'
+        create: true
+        mode: '0644'
+
+    # ✅ Check if Terraform is installed (Lint-Friendly)
+    - name: Check if Terraform is installed
+      ansible.builtin.command: which terraform
+      register: terraform_check
+      changed_when: false
+      ignore_errors: true
+
+    # ✅ Install Terraform via Homebrew (normal user)
+    - name: Install Terraform via Homebrew
+      community.general.homebrew:
+        name: terraform
+        state: present
+      when: terraform_check.rc != 0
+
+    # ✅ Modify user groups (requires sudo)
+    - name: Add user to libvirt and KVM groups
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        groups: libvirt,kvm
+        append: true
+
+    # ✅ Start and enable Libvirt (requires sudo)
+    - name: Start and enable Libvirt
+      become: true
+      ansible.builtin.systemd:
+        name: libvirtd
+        state: started
+        enabled: true
+
+    # ✅ Download AlmaLinux cloud image (requires sudo to write to `/var/lib/libvirt/`)
+    - name: Download AlmaLinux cloud image
+      become: true
+      ansible.builtin.get_url:
+        url: https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2
+        dest: /var/lib/libvirt/images/almalinux.qcow2
+        mode: '0644'
+
+    # ✅ Create Terraform directory as the normal user
+    - name: Ensure Terraform directory exists
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/terraform-vm"
+        state: directory
+        mode: '0755'
+
+    # ✅ Check if Libvirt is running
+    - name: Check if Libvirt is active
+      become: true
+      ansible.builtin.command: systemctl is-active libvirtd
+      register: libvirt_status
+      changed_when: false
+      failed_when: libvirt_status.rc > 1  # Only fail if it's an unexpected error
+
+    # ✅ Restart Libvirt ONLY if it’s not already running
+    - name: Restart Libvirt if needed
+      become: true
+      ansible.builtin.systemd:
+        name: libvirtd
+        state: restarted
+        enabled: true
+      when: libvirt_status.stdout != "active"
+
+    # ✅ Wait for Libvirt to be fully active (5 retries, 3s delay)
+    - name: Wait for Libvirt to become active
+      become: true
+      ansible.builtin.command: systemctl is-active libvirtd
+      register: libvirt_check
+      retries: 5
+      delay: 3
+      until: libvirt_check.stdout == "active"
+
+    # ✅ Check if the default storage pool exists
+    - name: Check if the default storage pool exists
+      become: true
+      ansible.builtin.command: virsh pool-info default
+      register: pool_info
+      changed_when: false
+      ignore_errors: true  # Prevent failure if the pool is missing
+
+    # ✅ Define the storage pool ONLY if it does not exist
+    - name: Define default Libvirt storage pool
+      become: true
+      community.libvirt.virt_pool:
+        name: default
+        state: present
+        xml: |
+          <pool type='dir'>
+            <name>default</name>
+            <target>
+              <path>/var/lib/libvirt/images</path>
+            </target>
+          </pool>
+      when: pool_info.rc != 0  # Only create the pool if it is missing
+
+    # ✅ Start and enable the storage pool
+    - name: Start and enable default Libvirt storage pool
+      become: true
+      community.libvirt.virt_pool:
+        name: default
+        state: active
+        autostart: true
+      when: libvirt_check.stdout == "active"
