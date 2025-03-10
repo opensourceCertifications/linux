@@ -1,79 +1,43 @@
 terraform {
   required_providers {
-    libvirt = {
-      source  = "dmacvicar/libvirt"
-      version = "~> 0.6.3"
+    vagrant = {
+      source  = "bmatcuk/vagrant"
+      version = "~> 3.0"
     }
   }
 }
 
-provider "libvirt" {
-  uri = "qemu:///system"
+provider "vagrant" {
+  cwd = "/home/adamuser/linux/vagrant-almalinux/"  # Path to Vagrantfile
 }
 
-# Define the Cloud-Init disk with user data
-resource "libvirt_cloudinit_disk" "cloudinit" {
-  name = "cloudinit.iso"
-  pool = "default"
-
-  user_data = <<EOF
-#cloud-config
-hostname: almalinux-vm
-manage_etc_hosts: true
-users:
-  - name: adamuser
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    groups: users, admin
-    shell: /bin/bash
-    lock_passwd: false
-    passwd: "password"   # 🔴 Consider replacing with a hashed password
-ssh_pwauth: true
-disable_root: false
-chpasswd:
-  expire: false
-EOF
-}
-
-# Define the AlmaLinux disk volume
-resource "libvirt_volume" "almalinux-disk" {
-  name   = "almalinux-disk"
-  pool   = "default"
-  source = "/var/lib/libvirt/images/almalinux.qcow2"  # Path to AlmaLinux image
-  format = "qcow2"
-}
-
-# Define the AlmaLinux virtual machine
-resource "libvirt_domain" "almalinux-vm" {
+resource "vagrant_vm" "almalinux-vm" {
   name   = "almalinux-vm"
+  box    = "generic/almalinux9"
   memory = 2048
-  vcpu   = 2
+  cpus   = 2
 
-  disk {
-    volume_id = libvirt_volume.almalinux-disk.id
+  network {
+    type = "private_network"
+    ip   = "192.168.56.100"  # Adjust if necessary
   }
 
-  # Attach Cloud-Init disk
-  cloudinit = libvirt_cloudinit_disk.cloudinit.id
+  provisioner "remote-exec" {
+    inline = [
+      "sudo dnf install -y cloud-utils",
+      "sudo systemctl enable --now sshd"
+    ]
 
-  network_interface {
-    network_name = "default"
-    addresses    = ["192.168.122.100"]
-  }
-
-  console {
-    type        = "pty"
-    target_type = "serial"
-    target_port = "0"
-  }
-
-  graphics {
-    type        = "vnc"
-    listen_type = "address"
+    connection {
+      type     = "ssh"
+      user     = "vagrant"
+      password = "vagrant"
+      host     = self.network[0].ip
+    }
   }
 }
 
-# Output the VM's assigned IP
 output "vm_ip" {
-  value = libvirt_domain.almalinux-vm.network_interface[0].addresses[0]
+  value = vagrant_vm.almalinux-vm.network[0].ip
 }
 
