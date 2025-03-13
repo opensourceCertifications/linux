@@ -1,0 +1,55 @@
+---
+- name: Verify LVM Configuration
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Check if lvm2 package is installed
+      command: which lvm
+      register: lvm_installed
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ LVM Installed: {{ 'PASS' if lvm_installed.rc == 0 else 'FAIL' }}"
+
+    - name: Check if a Physical Volume exists
+      command: pvdisplay
+      register: pv_check
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Physical Volume Exists: {{ 'PASS' if 'PV Name' in pv_check.stdout else 'FAIL' }}"
+
+    - name: Check if a Volume Group exists
+      command: vgdisplay
+      register: vg_check
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Volume Group Exists: {{ 'PASS' if 'VG Name' in vg_check.stdout else 'FAIL' }}"
+
+    - name: Check if a Logical Volume exists
+      command: lvdisplay
+      register: lv_check
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Logical Volume Exists: {{ 'PASS' if 'LV Name' in lv_check.stdout else 'FAIL' }}"
+
+    - name: Check if Logical Volume is formatted
+      shell: "blkid | grep /dev/mapper"
+      register: lv_format
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Logical Volume Formatted: {{ 'PASS' if lv_format.stdout else 'FAIL' }}"
+
+    - name: Check if Logical Volume is mounted persistently
+      shell: "grep /dev/mapper /etc/fstab"
+      register: lv_fstab
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Logical Volume Mounted Persistently: {{ 'PASS' if lv_fstab.stdout else 'FAIL' }}"
+
