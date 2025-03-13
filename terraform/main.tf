@@ -7,37 +7,14 @@ terraform {
   }
 }
 
-provider "vagrant" {
-  cwd = "/home/adamuser/linux/vagrant-almalinux/"  # Path to Vagrantfile
-}
+provider "vagrant" {}
 
-resource "vagrant_vm" "almalinux-vm" {
-  name   = "almalinux-vm"
-  box    = "generic/almalinux9"
-  memory = 2048
-  cpus   = 2
-
-  network {
-    type = "private_network"
-    ip   = "192.168.56.100"  # Adjust if necessary
-  }
-
-  provisioner "remote-exec" {
-    inline = [
-      "sudo dnf install -y cloud-utils",
-      "sudo systemctl enable --now sshd"
-    ]
-
-    connection {
-      type     = "ssh"
-      user     = "vagrant"
-      password = "vagrant"
-      host     = self.network[0].ip
-    }
-  }
+resource "vagrant_machine" "almalinux" {
+  provider    = "virtualbox"
+  vagrantfile = "${path.module}/Vagrantfile"  # Ensure Vagrantfile is in the same directory
 }
 
 output "vm_ip" {
-  value = vagrant_vm.almalinux-vm.network[0].ip
+  value = "192.168.56.100"  # Adjust as needed
 }
 
