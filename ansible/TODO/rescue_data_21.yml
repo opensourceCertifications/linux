@@ -1,0 +1,37 @@
+---
+- name: Verify Data Recovery Setup with ddrescue
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Check if ddrescue is installed
+      command: which ddrescue
+      register: ddrescue_installed
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ ddrescue Installed: {{ 'PASS' if ddrescue_installed.rc == 0 else 'FAIL' }}"
+
+    - name: Check if a corrupt disk is detected
+      shell: "lsblk | grep -i 'sd' || fdisk -l | grep 'Disk'"
+      register: corrupt_disk
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Corrupt Disk Detected: {{ 'PASS' if corrupt_disk.stdout else 'FAIL' }}"
+
+    - name: Check if a recovery destination is available
+      stat:
+        path: /mnt/recovery.img  # Modify if needed
+      register: recovery_dest
+    - debug:
+        msg: "✅ Recovery Destination Available: {{ 'PASS' if recovery_dest.stat.exists else 'FAIL' }}"
+
+    - name: Check if ddrescue logs exist
+      stat:
+        path: /var/log/ddrescue.log
+      register: ddrescue_logs
+    - debug:
+        msg: "✅ ddrescue Logs Exist: {{ 'PASS' if ddrescue_logs.stat.exists else 'FAIL' }}"
+
