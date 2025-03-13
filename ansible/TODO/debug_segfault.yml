@@ -1,0 +1,38 @@
+---
+- name: Verify Debugging Environment for Segfault Analysis
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Check if GDB is installed
+      command: which gdb
+      register: gdb_installed
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ GDB Installed: {{ 'PASS' if gdb_installed.rc == 0 else 'FAIL' }}"
+
+    - name: Check if Valgrind is installed
+      command: which valgrind
+      register: valgrind_installed
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Valgrind Installed: {{ 'PASS' if valgrind_installed.rc == 0 else 'FAIL' }}"
+
+    - name: Check if core dumps are enabled
+      shell: "ulimit -c"
+      register: core_dump
+      changed_when: false
+    - debug:
+        msg: "✅ Core Dumps Enabled: {{ 'PASS' if core_dump.stdout != '0' else 'FAIL' }}"
+
+    - name: Check for segfault logs in dmesg
+      shell: "dmesg | grep -i segfault"
+      register: segfault_logs
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Segfault Logs Found: {{ 'PASS' if segfault_logs.stdout else 'FAIL' }}"
+
