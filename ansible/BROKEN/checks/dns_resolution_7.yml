@@ -1,0 +1,30 @@
+---
+- name: Verify DNS Resolution
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Check if /etc/resolv.conf contains valid nameservers
+      shell: "grep 'nameserver' /etc/resolv.conf"
+      register: resolv_conf
+      changed_when: false
+    - debug:
+        msg: "✅ Valid Nameservers Found: {{ 'PASS' if resolv_conf.stdout else 'FAIL' }}"
+
+    - name: Test DNS resolution with ping
+      shell: "ping -c 1 google.com"
+      register: dns_ping
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ DNS Resolution Works: {{ 'PASS' if dns_ping.rc == 0 else 'FAIL' }}"
+
+    - name: Check for DNS errors in system logs
+      shell: "journalctl -u systemd-resolved | grep -i 'failed'"
+      register: dns_errors
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ No DNS Errors in Logs: {{ 'PASS' if not dns_errors.stdout else 'FAIL' }}"
+

@@ -1,0 +1,29 @@
+---
+- name: Verify SELinux Configuration
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Check if SELinux is in enforcing mode
+      shell: "getenforce"
+      register: selinux_status
+      changed_when: false
+    - debug:
+        msg: "✅ SELinux Enforcing Mode: {{ 'PASS' if selinux_status.stdout == 'Enforcing' else 'FAIL' }}"
+
+    - name: Check if SELinux policy blocks HTTP services
+      shell: "semanage boolean -l | grep -E '^httpd_can_network_connect' | awk '{print $2}'"
+      register: selinux_httpd
+      changed_when: false
+    - debug:
+        msg: "✅ SELinux Blocks HTTP Services: {{ 'PASS' if selinux_httpd.stdout == 'off' else 'FAIL' }}"
+
+    - name: Check for SELinux denials related to HTTP in audit logs
+      shell: "ausearch -m AVC -c httpd --just-one"
+      register: selinux_denials
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ SELinux Logs Contain HTTP Denials: {{ 'PASS' if selinux_denials.stdout else 'FAIL' }}"
+
