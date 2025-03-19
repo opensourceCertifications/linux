@@ -1,0 +1,55 @@
+---
+- name: Verify Automated Backup with rsync
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Check if rsync is installed
+      command: which rsync
+      register: rsync_installed
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ rsync Installed: {{ 'PASS' if rsync_installed.rc == 0 else 'FAIL' }}"
+
+    - name: Check if backup script exists
+      stat:
+        path: /usr/local/bin/backup.sh
+      register: backup_script
+    - debug:
+        msg: "✅ Backup Script Exists: {{ 'PASS' if backup_script.stat.exists else 'FAIL' }}"
+
+    - name: Check if backup script is executable
+      file:
+        path: /usr/local/bin/backup.sh
+        mode: '0755'
+      check_mode: yes
+      register: backup_executable
+    - debug:
+        msg: "✅ Backup Script Executable: {{ 'PASS' if backup_executable.changed == false else 'FAIL' }}"
+
+    - name: Check if cron job or systemd timer exists
+      shell: "crontab -l | grep backup.sh || systemctl list-timers | grep backup"
+      register: cron_job
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Backup Automation Configured: {{ 'PASS' if cron_job.stdout else 'FAIL' }}"
+
+    - name: Check if backup destination is reachable
+      command: ping -c 2 192.168.1.100  # Change to actual backup server IP
+      register: backup_server
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Backup Destination Reachable: {{ 'PASS' if backup_server.rc == 0 else 'FAIL' }}"
+
+    - name: Check if SSH key authentication is set up
+      shell: "test -f ~/.ssh/id_rsa && test -f ~/.ssh/id_rsa.pub"
+      register: ssh_keys
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ SSH Key Authentication Configured: {{ 'PASS' if ssh_keys.rc == 0 else 'FAIL' }}"
+

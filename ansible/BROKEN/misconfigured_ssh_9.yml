@@ -1,0 +1,29 @@
+---
+- name: Verify SSH Configuration
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Check if PermitRootLogin is disabled
+      shell: "grep '^PermitRootLogin' /etc/ssh/sshd_config"
+      register: ssh_root_login
+      changed_when: false
+    - debug:
+        msg: "✅ PermitRootLogin Disabled: {{ 'PASS' if 'no' in ssh_root_login.stdout else 'FAIL' }}"
+
+    - name: Check if primary user account is locked
+      shell: "passwd -S <PRIMARY_USER> | awk '{print $2}'" #replace with the actual user
+      register: user_locked
+      changed_when: false
+    - debug:
+        msg: "✅ Primary User Account Locked: {{ 'PASS' if user_locked.stdout == 'L' else 'FAIL' }}"
+
+    - name: Check if SSH service is running
+      shell: "systemctl is-active sshd"
+      register: ssh_status
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ SSH Service Running: {{ 'PASS' if ssh_status.stdout == 'active' else 'FAIL' }}"
+

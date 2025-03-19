@@ -1,0 +1,33 @@
+---
+- name: Verify Hardened SSH Configuration
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Check if SSH password authentication is disabled
+      shell: "grep -E '^PasswordAuthentication no' /etc/ssh/sshd_config"
+      register: ssh_password_auth
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Password Authentication Disabled: {{ 'PASS' if ssh_password_auth.stdout else 'FAIL' }}"
+
+    - name: Check if SSH port has been changed from default 22
+      shell: "grep -E '^Port ' /etc/ssh/sshd_config"
+      register: ssh_port
+      changed_when: false
+    - debug:
+        msg: "✅ SSH Port Changed: {{ 'PASS' if ssh_port.stdout != 'Port 22' else 'FAIL' }}"
+
+    - name: Check if two-factor authentication is enabled (Google Authenticator)
+      stat:
+        path: /etc/pam.d/sshd
+      register: ssh_pam
+    - shell: "grep -q 'pam_google_authenticator.so' /etc/pam.d/sshd"
+      register: ssh_2fa
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Two-Factor Authentication Enabled: {{ 'PASS' if ssh_2fa.rc == 0 else 'FAIL' }}"
+
