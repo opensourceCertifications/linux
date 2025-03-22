@@ -1,0 +1,78 @@
+---
+- name: Verify Boot Loader Integrity (Wildcard-based GRUB search)
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Find GRUB directories under /boot matching grub*
+      # This finds directories named grub or grub2 (or anything matching grub*).
+      # If you only care about top-level (no recursion), set maxdepth as well.
+      find:
+        paths: /boot
+        file_type: directory
+        patterns: "grub*"
+        use_regex: false
+        recurse: false
+      register: found_grub_dirs
+
+    - name: Select the first discovered GRUB directory
+      set_fact:
+        grub_directory: "{{ found_grub_dirs.files[0].path }}"
+      when: found_grub_dirs.files | length > 0
+
+    - name: Find grub.cfg within that directory
+      find:
+        paths: "{{ grub_directory | default('') }}"
+        file_type: file
+        patterns: "grub.cfg"
+        use_regex: false
+        recurse: true   # If grub.cfg might be in subdirs
+      register: found_grub_configs
+      when: grub_directory is defined
+
+    - name: Set GRUB config path
+      set_fact:
+        grub_cfg_path: "{{ found_grub_configs.files[0].path }}"
+      when: found_grub_configs.files | length > 0
+
+    - name: Debug the discovered path
+      debug:
+        msg: "Found GRUB config at: {{ grub_cfg_path | default('No grub.cfg found!') }}"
+
+    - name: Check if GRUB config file exists
+      stat:
+        path: "/etc/default/grub"
+      register: grub_config
+    - debug:
+        msg: "✅ GRUB Config Exists: {{ 'PASS' if grub_config.stat.exists else 'FAIL' }}"
+
+    - name: Check if GRUB bootloader is configured
+      stat:
+        path: "{{ grub_cfg_path | default('dummy_missing_path') }}"
+      register: grub_bootloader
+    - debug:
+        msg: "✅ GRUB Bootloader Exists: {{ 'PASS' if grub_bootloader.stat.exists else 'FAIL' }}"
+
+    - name: Verify GRUB has a valid root partition
+      shell: "grep 'root=' {{ grub_cfg_path | default('dummy_missing_path') }}"
+      register: grub_root_partition
+      changed_when: false
+    - debug:
+        msg: "✅ GRUB Root Partition Configured: {{ 'PASS' if grub_root_partition.stdout else 'FAIL' }}"
+
+    - name: Check system boot status
+      shell: "systemctl is-system-running"
+      register: system_status
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ System Boot Status: {{ 'PASS' if system_status.stdout == 'running' else 'FAIL' }}"
+
+    - name: Check if kernel logs contain boot errors
+      shell: "journalctl -b -p err"
+      register: kernel_errors
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ No Kernel Boot Errors: {{ 'PASS' if not kernel_errors.stdout else 'FAIL' }}"
