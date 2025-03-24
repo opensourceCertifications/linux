@@ -1,0 +1,30 @@
+---
+- name: Verify Kernel Module Integrity
+  hosts: localhost
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Check if the critical kernel module is loaded
+      shell: "lsmod | grep e1000"
+      register: kernel_module
+      changed_when: false
+    - debug:
+        msg: "✅ Kernel Module Missing: {{ 'PASS' if not kernel_module.stdout else 'FAIL' }}"
+
+    - name: Check if the module is blacklisted in /etc/modprobe.d/
+      shell: "grep 'blacklist e1000' /etc/modprobe.d/*.conf"
+      register: blacklist_check
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ Kernel Module Blacklisted: {{ 'PASS' if blacklist_check.stdout else 'FAIL' }}"
+
+    - name: Check if dmesg logs contain module-related errors
+      shell: "dmesg | grep -i 'module'"
+      register: kernel_errors
+      ignore_errors: yes
+      changed_when: false
+    - debug:
+        msg: "✅ dmesg Logs Contain Module Errors: {{ 'PASS' if kernel_errors.stdout else 'FAIL' }}"
+
