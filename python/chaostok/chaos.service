@@ -1,0 +1,11 @@
+[Unit]
+Description=Chaostok Chaos Agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/chaostok/run.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+- id: corrupt_apt
+  weight: 8
+  condition: !!python/name:sabotage_modules.corrupt_apt.condition
+
+- id: break_cron
+  weight: 4
+  condition: !!python/name:sabotage_modules.break_cron.condition

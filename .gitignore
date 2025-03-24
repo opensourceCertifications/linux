@@ -9,5 +9,6 @@ tfplan
 .terraform.lock.hcl
 
 .terraform/
+.vagrant/
 
 *.log
