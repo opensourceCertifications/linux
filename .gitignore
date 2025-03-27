@@ -10,4 +10,6 @@ tfplan
 
 .terraform/
 
+.vagrant/
+
 *.log
