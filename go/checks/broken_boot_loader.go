@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"log"
 	"os"
 	"os/exec"
@@ -8,80 +9,135 @@ import (
 	"strings"
 )
 
-func CheckGrubFix() bool {
-	// Step 1: Discover grub.cfg under /boot matching grub*
-	entries, err := os.ReadDir("/boot")
-	if err != nil {
-		log.Println("[check] Failed to read /boot directory")
-		return false
-	}
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
 
-	var grubDir string
-	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), "grub") {
-			grubDir = filepath.Join("/boot", e.Name())
-			break
-		}
-	}
-
-	if grubDir == "" {
-		log.Println("[check] No GRUB directory found → FAIL")
-		return false
-	}
-
-	// Step 2: Find grub.cfg in the discovered grub directory
-	var grubCfgPath string
-	err = filepath.Walk(grubDir, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && info.Name() == "grub.cfg" {
-			grubCfgPath = path
-			return filepath.SkipDir
-		}
-		return nil
-	})
-
-	if grubCfgPath == "" {
-		log.Println("[check] grub.cfg not found → FAIL")
-		return false
-	}
-	log.Println("[check] Found GRUB config at:", grubCfgPath)
-
-	// Step 3: Check /etc/default/grub exists
-	if _, err := os.Stat("/etc/default/grub"); os.IsNotExist(err) {
-		log.Println("[check] /etc/default/grub missing → FAIL")
-		return false
-	}
-
-	// Step 4: Check grub.cfg exists
-	if _, err := os.Stat(grubCfgPath); os.IsNotExist(err) {
-		log.Println("[check] grub.cfg file missing → FAIL")
-		return false
-	}
-
-	// Step 5: Check grub.cfg contains 'root='
+func parseClassicGrub(grubCfgPath string) bool {
 	contents, err := os.ReadFile(grubCfgPath)
-	if err != nil || !strings.Contains(string(contents), "root=") {
-		log.Println("[check] grub.cfg missing root= line → FAIL")
+	if err != nil {
+		log.Println("[check] Failed to read grub.cfg → FAIL")
+		return false
+	}
+	contentsStr := string(contents)
+
+	if !(strings.Contains(contentsStr, "linux") || strings.Contains(contentsStr, "linux16")) ||
+		!(strings.Contains(contentsStr, "initrd") || strings.Contains(contentsStr, "initrd16")) {
+		log.Println("[check] grub.cfg missing linux/initrd entries → FAIL")
 		return false
 	}
 
-	// Step 6: Check system status
-	statusOut, err := exec.Command("systemctl", "is-system-running").Output()
-	if err != nil || strings.TrimSpace(string(statusOut)) != "running" {
-		log.Println("[check] System not in running state → FAIL")
+	scanner := bufio.NewScanner(strings.NewReader(contentsStr))
+	pathsToCheck := []string{}
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "linux") || strings.HasPrefix(line, "initrd") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				pathsToCheck = append(pathsToCheck, parts[1])
+			}
+		}
+	}
+
+	for _, path := range pathsToCheck {
+		fullPath := filepath.Join("/boot", strings.TrimPrefix(path, "/"))
+		info, err := os.Stat(fullPath)
+		if err != nil || info.Size() < 1024 {
+			log.Println("[check] Missing or empty kernel/initrd file:", fullPath, "→ FAIL")
+			return false
+		}
+	}
+
+	log.Println("[check] Classic GRUB looks good → PASS")
+	return true
+}
+
+func parseBLS() bool {
+	entries, err := filepath.Glob("/boot/loader/entries/*.conf")
+	if err != nil || len(entries) == 0 {
+		log.Println("[check] No BLS entries found → FAIL")
 		return false
 	}
 
-	// Step 7: Check journalctl for boot errors
-	errLog, err := exec.Command("journalctl", "-b", "-p", "err").Output()
-	if err == nil && len(errLog) > 0 {
-		log.Println("[check] Kernel boot errors detected → FAIL")
+	for _, entry := range entries {
+		content, err := os.ReadFile(entry)
+		if err != nil {
+			log.Println("[check] Failed to read BLS entry:", entry)
+			return false
+		}
+		lines := strings.Split(string(content), "\n")
+		foundLinux := false
+		foundInitrd := false
+		for _, line := range lines {
+			if strings.HasPrefix(line, "linux") || strings.HasPrefix(line, "initrd") {
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					fullPath := filepath.Join("/boot", strings.TrimPrefix(fields[1], "/"))
+					info, err := os.Stat(fullPath)
+					if err != nil || info.Size() < 1024 {
+						log.Println("[check] Missing or empty file:", fullPath, "→ FAIL")
+						return false
+					}
+				}
+				if strings.HasPrefix(line, "linux") {
+					foundLinux = true
+				}
+				if strings.HasPrefix(line, "initrd") {
+					foundInitrd = true
+				}
+			}
+		}
+		if !foundLinux || !foundInitrd {
+			log.Println("[check] BLS entry missing linux/initrd in:", entry, "→ FAIL")
+			return false
+		}
+	}
+
+	log.Println("[check] BLS entries look good → PASS")
+	return true
+}
+
+func CheckGrubSafeToReboot() bool {
+	// 1. Check /etc/default/grub exists
+	if !fileExists("/etc/default/grub") {
+		log.Println("[check] /etc/default/grub is missing → FAIL")
 		return false
 	}
 
-	log.Println("[check] All GRUB integrity checks passed → PASS")
+	// 2. Check if grub.cfg exists
+	grubCfgPath := "/boot/grub2/grub.cfg"
+	if !fileExists(grubCfgPath) {
+		log.Println("[check] grub.cfg not found at", grubCfgPath, "→ FAIL")
+		return false
+	}
+
+	contents, _ := os.ReadFile(grubCfgPath)
+	if strings.Contains(string(contents), "blscfg") {
+		log.Println("[check] Detected BLS mode")
+		if !parseBLS() {
+			return false
+		}
+	} else {
+		log.Println("[check] Detected Classic GRUB mode")
+		if !parseClassicGrub(grubCfgPath) {
+			return false
+		}
+	}
+
+	// 3. Attempt to regenerate GRUB config
+	cmd := exec.Command("grub2-mkconfig", "-o", "/tmp/test-grub.cfg")
+	err := cmd.Run()
+	if err != nil {
+		log.Println("[check] grub2-mkconfig failed → FAIL")
+		return false
+	}
+	_ = os.Remove("/tmp/test-grub.cfg")
+
+	log.Println("[check] GRUB appears safe to reboot → PASS")
 	return true
 }
 
 func main() {
-	CheckGrubFix()
+	CheckGrubSafeToReboot()
 }

