@@ -10,6 +10,8 @@ import (
     "net"
     "sync"
     "time"
+
+    "github.com/pquerna/otp/totp"
 )
 
 type Heartbeat struct {
@@ -17,11 +19,13 @@ type Heartbeat struct {
     Status    string `json:"status"`
     Service   string `json:"service"`
     Version   string `json:"version"`
+    TOTP      string `json:"totp"`
 }
 
 var (
     lastHeartbeat time.Time
     mu             sync.Mutex
+    sharedSecret   = "JBSWY3DPEHPK3PXP" // Predefined TOTP secret for testing
 )
 
 func main() {
@@ -58,9 +62,18 @@ func handleConnection(conn net.Conn) {
         return
     }
 
+    if !validateTOTP(hb.TOTP) {
+        log.Printf("ERROR: Invalid TOTP received: %s", hb.TOTP)
+        return
+    }
+
     mu.Lock()
     lastHeartbeat = time.Now()
     mu.Unlock()
+}
+
+func validateTOTP(code string) bool {
+    return totp.Validate(code, sharedSecret)
 }
 
 func checkHeartbeat() {
@@ -77,4 +90,3 @@ func checkHeartbeat() {
         }
     }
 }
-

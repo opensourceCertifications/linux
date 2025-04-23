@@ -1,2 +1,1 @@
-#!/bin/bash
-VAGRANT_USE_PARALLEL=true vagrant up "$@"
+parallel --line-buffer -j2 unbuffer vagrant up ::: monitor testenv

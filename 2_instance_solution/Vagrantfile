@@ -1,9 +1,19 @@
 Vagrant.configure("2") do |config|
+  # Define shared shell provisioning
+  shell_provision = lambda do |vm|
+    vm.provision "shell", inline: <<-SHELL
+      sudo systemctl enable --now sshd
+      sudo dnf update -y
+      sudo dnf install -y golang
+    SHELL
+  end
+
   config.vm.define "monitor" do |monitor|
     monitor.vm.box = "almalinux/9"
     monitor.vm.hostname = "monitor"
     monitor.vm.network "private_network", ip: "192.168.56.10"
     monitor.vm.provision "file", source: "monitor_service.go", destination: "/home/vagrant/monitor_service.go"
+    shell_provision.call(monitor.vm)
   end
 
   config.vm.define "testenv" do |testenv|
@@ -11,12 +21,6 @@ Vagrant.configure("2") do |config|
     testenv.vm.hostname = "testenv"
     testenv.vm.network "private_network", ip: "192.168.56.11"
     testenv.vm.provision "file", source: "test_environment.go", destination: "/home/vagrant/test_environment.go"
+    shell_provision.call(testenv.vm)
   end
-
-#  config.vm.provision "shell", inline: <<-SHELL
-#    sudo systemctl enable --now sshd
-#    sudo yum update -y
-#    sudo yum upgrade -y
-#    sudo yum install -y golang
-#  SHELL
 end
