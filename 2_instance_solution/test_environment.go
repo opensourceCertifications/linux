@@ -32,6 +32,20 @@ func main() {
     ip := os.Args[1]
     address := fmt.Sprintf("%s:9000", ip)
 
+    fmt.Println("Waiting for monitor service to become available...")
+
+    for {
+        conn, err := net.DialTimeout("tcp", address, 1*time.Second)
+        if err != nil {
+            fmt.Println("Monitor not ready, retrying...")
+            time.Sleep(1 * time.Second)
+            continue
+        }
+        conn.Close()
+        fmt.Println("Connected to monitor. Starting heartbeat...")
+        break
+    }
+
     first := true
     for {
         totpCode, err := totp.GenerateCode(sharedSecret, time.Now())

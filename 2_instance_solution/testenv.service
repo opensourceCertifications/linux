@@ -1,0 +1,12 @@
+[Unit]
+Description=Chaos Test Environment Daemon
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/bin/go run /usr/bin/test_environment.go 192.168.56.10
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Chaos Monitor Service
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/bin/go run /usr/bin/monitor_service.go
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
