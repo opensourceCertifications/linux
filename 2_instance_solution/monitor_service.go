@@ -20,12 +20,16 @@ type Heartbeat struct {
     Service   string `json:"service"`
     Version   string `json:"version"`
     TOTP      string `json:"totp"`
+    Checksum  string `json:"checksum"`
+    First     bool   `json:"first"`
 }
 
 var (
     lastHeartbeat time.Time
     mu             sync.Mutex
     sharedSecret   = "JBSWY3DPEHPK3PXP" // Predefined TOTP secret for testing
+    expectedChecksum string
+    hasReceivedFirst bool
 )
 
 func main() {
@@ -50,6 +54,7 @@ func main() {
 
 func handleConnection(conn net.Conn) {
     defer conn.Close()
+
     data, err := io.ReadAll(conn)
     if err != nil {
         log.Printf("Failed to read data: %v", err)
@@ -66,14 +71,31 @@ func handleConnection(conn net.Conn) {
         log.Printf("ERROR: Invalid TOTP received: %s", hb.TOTP)
         return
     } else {
-	log.Printf("Valid TOTP received: %s", hb.TOTP)
+        log.Printf("Valid TOTP received: %s", hb.TOTP)
     }
-    log.Printf("TOTP", hb.TOTP)
 
     mu.Lock()
+    defer mu.Unlock()
+
+    // Check for first heartbeat and validate checksum
+    if !hb.First && !hasReceivedFirst {
+        log.Printf("ERROR: Received non-initial heartbeat before first was received")
+        return
+    }
+
+    if hb.First {
+        expectedChecksum = hb.Checksum
+        hasReceivedFirst = true
+        log.Printf("Initial checksum received: %s", expectedChecksum)
+    } else if hb.Checksum != expectedChecksum {
+        log.Printf("ERROR: Checksum mismatch. Received: %s, Expected: %s", hb.Checksum, expectedChecksum)
+    } else {
+        log.Printf("Valid heartbeat with matching checksum: %s", hb.Checksum)
+    }
+
     lastHeartbeat = time.Now()
-    mu.Unlock()
 }
+
 
 func validateTOTP(code string) bool {
     return totp.Validate(code, sharedSecret)
