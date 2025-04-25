@@ -65,7 +65,10 @@ func handleConnection(conn net.Conn) {
     if !validateTOTP(hb.TOTP) {
         log.Printf("ERROR: Invalid TOTP received: %s", hb.TOTP)
         return
+    } else {
+	log.Printf("Valid TOTP received: %s", hb.TOTP)
     }
+    log.Printf("TOTP", hb.TOTP)
 
     mu.Lock()
     lastHeartbeat = time.Now()

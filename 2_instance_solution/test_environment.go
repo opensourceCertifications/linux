@@ -23,7 +23,7 @@ const sharedSecret = "JBSWY3DPEHPK3PXP"
 
 func main() {
     if len(os.Args) != 2 {
-        log.Fatalf("Usage: %s <ip>", os.Args[0])
+        log.Fatalf("Usage: %s ", os.Args[0])
     }
 
     ip := os.Args[1]
