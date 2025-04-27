@@ -18,7 +18,8 @@ Vagrant.configure("2") do |config|
     monitor.vm.box = "almalinux/9"
     monitor.vm.hostname = "monitor"
     monitor.vm.network "private_network", ip: "192.168.56.10"
-    monitor.vm.provision "file", source: "monitor_service.go", destination: "/home/vagrant/monitor_service.go"
+    #monitor.vm.provision "file", source: "monitor_service.go", destination: "/home/vagrant/monitor_service.go"
+    monitor.vm.synced_folder "./monitor", "/home/vagrant/"
 #    monitor.vm.provision "file", source: "monitor.service", destination: "/tmp/monitor.service"
     shell_provision.call(monitor.vm)
 #    monitor.vm.provision "shell", inline: <<-SHELL
@@ -34,6 +35,7 @@ Vagrant.configure("2") do |config|
     testenv.vm.hostname = "testenv"
     testenv.vm.network "private_network", ip: "192.168.56.11"
     testenv.vm.provision "file", source: "test_environment.go", destination: "/home/vagrant/test_environment.go"
+    monitor.vm.synced_folder "./testenv/", "/home/vagrant/"
 #    testenv.vm.provision "file", source: "testenv.service", destination: "/tmp/testenv.service"
     shell_provision.call(testenv.vm)
 #    testenv.vm.provision "shell", inline: <<-SHELL

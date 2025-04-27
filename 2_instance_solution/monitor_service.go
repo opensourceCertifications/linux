@@ -1,117 +1,93 @@
-/* monitor_service.go */
-
 package main
 
 import (
     "encoding/json"
-    "fmt"
-    "io"
-    "log"
-    "net"
-    "sync"
+    "testing"
     "time"
 
     "github.com/pquerna/otp/totp"
 )
 
-type Heartbeat struct {
-    Timestamp string `json:"timestamp"`
-    Status    string `json:"status"`
-    Service   string `json:"service"`
-    Version   string `json:"version"`
-    TOTP      string `json:"totp"`
-    Checksum  string `json:"checksum"`
-    First     bool   `json:"first"`
-}
-
-var (
-    lastHeartbeat time.Time
-    mu             sync.Mutex
-    sharedSecret   = "JBSWY3DPEHPK3PXP" // Predefined TOTP secret for testing
-    expectedChecksum string
-    hasReceivedFirst bool
-)
-
-func main() {
-    listener, err := net.Listen("tcp", ":9000")
+// TestValidateTOTP_Valid tests that validateTOTP accepts correct codes
+func TestValidateTOTP_Valid(t *testing.T) {
+    code, err := totp.GenerateCode(sharedSecret, time.Now())
     if err != nil {
-        log.Fatalf("Failed to start listener: %v", err)
+        t.Fatalf("Failed to generate TOTP: %v", err)
     }
-    defer listener.Close()
-    fmt.Println("Monitor listening on port 9000...")
 
-    go checkHeartbeat()
-
-    for {
-        conn, err := listener.Accept()
-        if err != nil {
-            log.Printf("Failed to accept connection: %v", err)
-            continue
-        }
-        go handleConnection(conn)
+    if !validateTOTP(code) {
+        t.Errorf("validateTOTP rejected a valid TOTP code")
     }
 }
 
-func handleConnection(conn net.Conn) {
-    defer conn.Close()
+// TestValidateTOTP_Invalid tests that validateTOTP rejects wrong codes
+func TestValidateTOTP_Invalid(t *testing.T) {
+    fakeCode := "000000"
 
-    data, err := io.ReadAll(conn)
+    if validateTOTP(fakeCode) {
+        t.Errorf("validateTOTP accepted an invalid TOTP code")
+    }
+}
+
+// TestHeartbeatMarshalling checks that Heartbeat struct can be serialized/deserialized
+func TestHeartbeatMarshalling(t *testing.T) {
+    heartbeat := Heartbeat{
+        Timestamp: time.Now().UTC().Format(time.RFC3339),
+        Status:    "alive",
+        Service:   "test_environment",
+        Version:   "1.0.0",
+        TOTP:      "123456",
+        Checksum:  "abcdef",
+        First:     true,
+    }
+
+    data, err := json.Marshal(heartbeat)
     if err != nil {
-        log.Printf("Failed to read data: %v", err)
-        return
+        t.Fatalf("Failed to marshal heartbeat: %v", err)
     }
 
     var hb Heartbeat
     if err := json.Unmarshal(data, &hb); err != nil {
-        log.Printf("Invalid heartbeat format: %v", err)
-        return
+        t.Fatalf("Failed to unmarshal heartbeat: %v", err)
     }
 
-    if !validateTOTP(hb.TOTP) {
-        log.Printf("ERROR: Invalid TOTP received: %s", hb.TOTP)
-        return
-    } else {
-        log.Printf("Valid TOTP received: %s", hb.TOTP)
+    if hb.Service != "test_environment" {
+        t.Errorf("Unexpected service field: got %s, want %s", hb.Service, "test_environment")
     }
-
-    mu.Lock()
-    defer mu.Unlock()
-
-    // Check for first heartbeat and validate checksum
-    if !hb.First && !hasReceivedFirst {
-        log.Printf("ERROR: Received non-initial heartbeat before first was received")
-        return
-    }
-
-    if hb.First {
-        expectedChecksum = hb.Checksum
-        hasReceivedFirst = true
-        log.Printf("Initial checksum received: %s", expectedChecksum)
-    } else if hb.Checksum != expectedChecksum {
-        log.Printf("ERROR: Checksum mismatch. Received: %s, Expected: %s", hb.Checksum, expectedChecksum)
-    } else {
-        log.Printf("Valid heartbeat with matching checksum: %s", hb.Checksum)
-    }
-
-    lastHeartbeat = time.Now()
 }
 
+// TestCheckHeartbeat simulates missed heartbeat detection
+func TestCheckHeartbeat(t *testing.T) {
+    lastHeartbeat = time.Now().Add(-2 * time.Second) // Simulate 2 seconds ago
 
-func validateTOTP(code string) bool {
-    return totp.Validate(code, sharedSecret)
-}
+    triggered := false
 
-func checkHeartbeat() {
-    ticker := time.NewTicker(1 * time.Second)
+    // Simulate a short check loop
+    ticker := time.NewTicker(100 * time.Millisecond)
     defer ticker.Stop()
 
-    for range ticker.C {
-        mu.Lock()
-        since := time.Since(lastHeartbeat)
-        mu.Unlock()
+    done := make(chan bool)
 
-        if since > 1*time.Second {
-            log.Println("ERROR: Missed heartbeat")
+    go func() {
+        for range ticker.C {
+            mu.Lock()
+            since := time.Since(lastHeartbeat)
+            mu.Unlock()
+
+            if since > 1*time.Second {
+                triggered = true
+                done <- true
+                return
+            }
         }
+    }()
+
+    select {
+    case <-done:
+        if !triggered {
+            t.Errorf("Expected missed heartbeat detection")
+        }
+    case <-time.After(500 * time.Millisecond):
+        t.Errorf("Heartbeat check did not trigger in expected time")
     }
 }
