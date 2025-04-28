@@ -17,3 +17,5 @@ tfplan
 go/
 
 .cache
+
+.bash_history

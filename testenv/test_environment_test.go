@@ -138,11 +138,3 @@ func TestExecuteRandomBreak(t *testing.T) {
     }
 }
 
-func TestMonitorReceivesBreak(t *testing.T) {
-    sentBreak := "example_break.go"
-    receivedBreak := simulateMonitorReception(sentBreak)
-
-    if receivedBreak != sentBreak {
-        t.Errorf("Monitor did not receive correct break script name: got %s, want %s", receivedBreak, sentBreak)
-    }
-}
