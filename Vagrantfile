@@ -6,7 +6,7 @@ Vagrant.configure("2") do |config|
       sudo dnf update -y
       sudo dnf install -y golang
       cd /home/vagrant
-      su - vagrant -c "cd /home/vagrant && go mod init monitor && go mod tidy"
+      #su - vagrant -c "cd /home/vagrant && go mod init monitor && go mod tidy"
       #cd /usr/bin/
       #su - root -c "cd /usr/bin && go mod init monitor && go mod tidy"
       #sudo systemctl daemon-reexec
@@ -19,7 +19,7 @@ Vagrant.configure("2") do |config|
     monitor.vm.hostname = "monitor"
     monitor.vm.network "private_network", ip: "192.168.56.10"
     #monitor.vm.provision "file", source: "monitor_service.go", destination: "/home/vagrant/monitor_service.go"
-    monitor.vm.synced_folder "./monitor", "/home/vagrant/"
+    monitor.vm.synced_folder "./monitor", "/home/vagrant/service/"
 #    monitor.vm.provision "file", source: "monitor.service", destination: "/tmp/monitor.service"
     shell_provision.call(monitor.vm)
 #    monitor.vm.provision "shell", inline: <<-SHELL
@@ -34,8 +34,8 @@ Vagrant.configure("2") do |config|
     testenv.vm.box = "almalinux/9"
     testenv.vm.hostname = "testenv"
     testenv.vm.network "private_network", ip: "192.168.56.11"
-    testenv.vm.provision "file", source: "test_environment.go", destination: "/home/vagrant/test_environment.go"
-    testenv.vm.synced_folder "./testenv/", "/home/vagrant/"
+#    testenv.vm.provision "file", source: "test_environment.go", destination: "/home/vagrant/test_environment.go"
+    testenv.vm.synced_folder "./testenv/", "/home/vagrant/service/"
 #    testenv.vm.provision "file", source: "testenv.service", destination: "/tmp/testenv.service"
     shell_provision.call(testenv.vm)
 #    testenv.vm.provision "shell", inline: <<-SHELL
