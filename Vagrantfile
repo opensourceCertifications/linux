@@ -1,33 +1,48 @@
 Vagrant.configure("2") do |config|
-  # Define Ubuntu VM
-  config.vm.box = "ubuntu/jammy64"
-  
-  # Configure VM resources
-  config.vm.provider "virtualbox" do |vb|
-    vb.memory = "2048"
-    vb.cpus = 2
+  # Define shared shell provisioning
+  shell_provision = lambda do |vm|
+    vm.provision "shell", inline: <<-SHELL
+      sudo systemctl enable --now sshd
+      sudo dnf update -y
+      sudo dnf install -y golang
+      cd /home/vagrant
+      su - vagrant -c "cd /home/vagrant && go mod init monitor && go mod tidy"
+      #cd /usr/bin/
+      #su - root -c "cd /usr/bin && go mod init monitor && go mod tidy"
+      #sudo systemctl daemon-reexec
+      #sudo systemctl daemon-reload
+    SHELL
   end
 
-  # VM networking
-  config.vm.network "forwarded_port", guest: 22, host: 2222
-
-  # VM customization
-  config.vm.provider "virtualbox" do |vb|
-    vb.name = "ubuntu_vm"
-    vb.memory = 2048
-    vb.cpus = 2
+  config.vm.define "monitor" do |monitor|
+    monitor.vm.box = "almalinux/9"
+    monitor.vm.hostname = "monitor"
+    monitor.vm.network "private_network", ip: "192.168.56.10"
+    #monitor.vm.provision "file", source: "monitor_service.go", destination: "/home/vagrant/monitor_service.go"
+    monitor.vm.synced_folder "./monitor", "/home/vagrant/"
+#    monitor.vm.provision "file", source: "monitor.service", destination: "/tmp/monitor.service"
+    shell_provision.call(monitor.vm)
+#    monitor.vm.provision "shell", inline: <<-SHELL
+#      sudo cp /tmp/monitor_service.go /usr/bin/monitor_service.go
+#      sudo cp /tmp/monitor.service /etc/systemd/system/monitor.service
+#      systemctl enable monitor.service
+#      systemctl start monitor.service
+#    SHELL
   end
 
-  config.vm.provision "shell", inline: <<-shell
-    sudo apt update
-    sudo apt upgrade -y
-    sudo apt install -y git software-properties-common
-    sudo add-apt-repository --yes --update ppa:ansible/ansible
-    sudo apt install -y ansible
-  shell
-
-  # Provisioning (optional)
-  # config.vm.provision "ansible" do |ansible|
-  #   ansible.playbook = "setup_neovim.yml"
-  # end
+  config.vm.define "testenv" do |testenv|
+    testenv.vm.box = "almalinux/9"
+    testenv.vm.hostname = "testenv"
+    testenv.vm.network "private_network", ip: "192.168.56.11"
+    testenv.vm.provision "file", source: "test_environment.go", destination: "/home/vagrant/test_environment.go"
+    testenv.vm.synced_folder "./testenv/", "/home/vagrant/"
+#    testenv.vm.provision "file", source: "testenv.service", destination: "/tmp/testenv.service"
+    shell_provision.call(testenv.vm)
+#    testenv.vm.provision "shell", inline: <<-SHELL
+#      sudo cp /tmp/test_environment.go /usr/bin/test_environment.go
+#      sudo cp /tmp/testenv.service /etc/systemd/system/testenv.service
+#      systemctl enable testenv.service
+#      systemctl start testenv.service
+#    SHELL
+  end
 end

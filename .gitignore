@@ -13,3 +13,7 @@ tfplan
 .vagrant/
 
 *.log
+
+go/
+
+.cache
