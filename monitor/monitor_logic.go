@@ -75,6 +75,7 @@ func checkHeartbeat() {
         mu.Unlock()
 
         if since > 1*time.Second {
+            println("No heartbeat received in the last second")
         }
     }
 }

@@ -31,6 +31,30 @@ const (
 	monitorPort    = 9000
 )
 
+func chaosInjector(address, breaksDir string, breakHistory *[]string) {
+	for {
+		delay := GetRandomDuration()
+		log.Printf("Chaos injector sleeping for %v before next break...", delay)
+		time.Sleep(delay)
+
+		breakFile, err := ExecuteRandomBreak(breaksDir)
+		if err != nil {
+			log.Printf("Failed to select a random break: %v", err)
+			continue
+		}
+
+		log.Printf("Executing chaos break: %s", breakFile)
+
+		err = SendBreakNameToMonitor(address, breakFile)
+		if err != nil {
+			log.Printf("Failed to send break name to monitor: %v", err)
+			continue
+		}
+
+		*breakHistory = append(*breakHistory, breakFile)
+	}
+}
+
 func main() {
 	if len(os.Args) != 2 {
 		log.Fatalf("Usage: %s <monitor_ip>", os.Args[0])
@@ -41,6 +65,10 @@ func main() {
 
 	waitForMonitor(address)
 	log.Println("Connected to monitor. Starting heartbeat...")
+
+	// === New chaos injection ===
+	breakHistory := []string{}
+	go chaosInjector(address, "./breaks/breaks/", &breakHistory)
 
 	startHeartbeat(address)
 }
