@@ -1,4 +1,4 @@
-module monitor
+module testenv
 
 go 1.23.6
 

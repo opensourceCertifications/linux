@@ -10,9 +10,9 @@ import (
 	"net"
 	"os"
 	"time"
-	"path/filepath"
 
 	"github.com/pquerna/otp/totp"
+	"testenv/breaks/breaks"
 )
 
 type Heartbeat struct {
@@ -31,13 +31,13 @@ const (
 	monitorPort    = 9000
 )
 
-func chaosInjector(address, breaksDir string, breakHistory *[]string) {
+func chaosInjector(address string, breakHistory *[]string) {
 	for {
 		delay := GetRandomDuration()
 		log.Printf("Chaos injector sleeping for %v before next break...", delay)
 		time.Sleep(delay)
 
-		breakFile, err := ExecuteRandomBreak(breaksDir)
+		breakFile, err := ExecuteRandomBreak()
 		if err != nil {
 			log.Printf("Failed to select a random break: %v", err)
 			continue
@@ -68,7 +68,7 @@ func main() {
 
 	// === New chaos injection ===
 	breakHistory := []string{}
-	go chaosInjector(address, "./breaks/breaks/", &breakHistory)
+	go chaosInjector(address, &breakHistory)
 
 	startHeartbeat(address)
 }
@@ -164,26 +164,20 @@ func GetRandomDuration() time.Duration {
 	return min + time.Duration(rand.Int63n(int64(max-min)))
 }
 
-func ExecuteRandomBreak(dir string) (string, error) {
-	files, err := os.ReadDir(dir)
-	if err != nil {
-		return "", fmt.Errorf("failed to read directory %s: %w", dir, err)
-	}
+var chaosFunctions = []struct {
+	Name string
+	Fn   func() error
+}{
+	{"BreakBootLoader", breaks.BreakBootLoader},
+	// add more here as needed
+}
 
-	var candidates []string
-	for _, file := range files {
-		if filepath.Ext(file.Name()) == ".go" {
-			candidates = append(candidates, file.Name())
-		}
-	}
-
-	if len(candidates) == 0 {
-		return "", fmt.Errorf("no .go files found in directory: %s", dir)
-	}
-
+func ExecuteRandomBreak() (string, error) {
 	rand.Seed(time.Now().UnixNano())
-	chosen := candidates[rand.Intn(len(candidates))]
-	return chosen, nil
+	selected := chaosFunctions[rand.Intn(len(chaosFunctions))]
+	log.Printf("Selected chaos function: %s", selected.Name)
+	err := selected.Fn()
+	return selected.Name, err
 }
 
 func SendBreakNameToMonitor(address, breakName string) error {
