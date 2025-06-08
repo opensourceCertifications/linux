@@ -6,6 +6,7 @@ import (
     "net"
     "sync"
     "time"
+    "fmt"
 
     "github.com/pquerna/otp/totp"
 )
@@ -42,6 +43,8 @@ func handleConnection(conn net.Conn) {
 
     var hb Heartbeat
     if err := json.Unmarshal(data, &hb); err != nil {
+        // Not a heartbeat — treat it as a break report
+        fmt.Printf("Break reported: %s\n", string(data))
         return
     }
 

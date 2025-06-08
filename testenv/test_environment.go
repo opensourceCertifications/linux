@@ -13,6 +13,7 @@ import (
 
 	"github.com/pquerna/otp/totp"
 	"testenv/breaks/breaks"
+	"testenv/internal/comm"
 )
 
 type Heartbeat struct {
@@ -62,6 +63,8 @@ func main() {
 
 	monitorIP := os.Args[1]
 	address := fmt.Sprintf("%s:%d", monitorIP, monitorPort)
+
+	comm.Init(fmt.Sprintf("%s:%d", monitorIP, monitorPort))
 
 	waitForMonitor(address)
 	log.Println("Connected to monitor. Starting heartbeat...")
@@ -159,8 +162,10 @@ func ComputeChecksum(path string) (string, error) {
 
 func GetRandomDuration() time.Duration {
 	rand.Seed(time.Now().UnixNano())
-	min := 5 * time.Minute
-	max := 7 * time.Minute
+	//min := 5 * time.Minute
+	//max := 7 * time.Minute
+	min := 0 * time.Minute
+	max := 1 * time.Minute
 	return min + time.Duration(rand.Int63n(int64(max-min)))
 }
 
