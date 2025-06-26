@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"math/rand"
 	"fmt"
 	"io"
@@ -33,6 +32,7 @@ const (
 )
 
 func chaosInjector(address string, breakHistory *[]string) {
+	comm.SendMessage("general", "this is a test")
 	for {
 		delay := GetRandomDuration()
 		log.Printf("Chaos injector sleeping for %v before next break...", delay)
@@ -46,11 +46,14 @@ func chaosInjector(address string, breakHistory *[]string) {
 
 		log.Printf("Executing chaos break: %s", breakFile)
 
-		err = SendBreakNameToMonitor(address, breakFile)
-		if err != nil {
-			log.Printf("Failed to send break name to monitor: %v", err)
-			continue
-		}
+		//err = SendBreakNameToMonitor(address, breakFile)
+		comm.SendMessage("chaos_report", map[string]string{
+			"message": fmt.Sprintf("Executed chaos break: %s", breakFile),
+		})
+//		if err != nil {
+//			log.Printf("Failed to send break name to monitor: %v", err)
+//			continue
+//		}
 
 		*breakHistory = append(*breakHistory, breakFile)
 	}
@@ -120,30 +123,57 @@ func startHeartbeat(address string) {
 
 		first = false
 
-		data, err := json.Marshal(heartbeat)
-		if err != nil {
-			log.Printf("Failed to marshal heartbeat: %v", err)
-			continue
-		}
+		//data, err := json.Marshal(heartbeat)
+		//err := json.Marshal(heartbeat)
+		//if err != nil {
+		//	log.Printf("Failed to marshal heartbeat: %v", err)
+		//	continue
+		//}
 
-		sendMessage(address, data)
+		comm.SendMessage("heartbeat", heartbeat)
 		time.Sleep(heartbeatDelay)
 	}
 }
 
-func sendMessage(address string, data []byte) {
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		log.Printf("Failed to connect to %s: %v", address, err)
-		return
-	}
-	defer conn.Close()
-
-	_, err = conn.Write(data)
-	if err != nil {
-		log.Printf("Failed to send message: %v", err)
-	}
-}
+//func sendMessage(msgType string, payload interface{}) {
+//	var rawData json.RawMessage
+//
+//	// If already []byte, no need to marshal again
+//	switch v := payload.(type) {
+//	case []byte:
+//		rawData = json.RawMessage(v)
+//	default:
+//		data, err := json.Marshal(v)
+//		if err != nil {
+//			log.Printf("Failed to marshal payload for type %s: %v", msgType, err)
+//			return
+//		}
+//		rawData = data
+//	}
+//
+//	envelope := map[string]interface{}{
+//		"type": msgType,
+//		"data": rawData,
+//	}
+//
+//	finalData, err := json.Marshal(envelope)
+//	if err != nil {
+//		log.Printf("Failed to marshal envelope: %v", err)
+//		return
+//	}
+//
+//	conn, err := net.Dial("tcp", monitorAddress)
+//	if err != nil {
+//		log.Printf("Failed to connect to %s: %v", monitorAddress, err)
+//		return
+//	}
+//	defer conn.Close()
+//
+//	_, err = conn.Write(finalData)
+//	if err != nil {
+//		log.Printf("Failed to send message to %s: %v", err)
+//	}
+//}
 
 func ComputeChecksum(path string) (string, error) {
 	file, err := os.Open(path)
@@ -185,18 +215,18 @@ func ExecuteRandomBreak() (string, error) {
 	return selected.Name, err
 }
 
-func SendBreakNameToMonitor(address, breakName string) error {
-	conn, err := net.Dial("tcp", address)
-	if err != nil {
-		return fmt.Errorf("failed to connect to monitor at %s: %w", address, err)
-	}
-	defer conn.Close()
-
-	_, err = conn.Write([]byte(breakName))
-	if err != nil {
-		return fmt.Errorf("failed to send break name to monitor: %w", err)
-	}
-
-	return nil
-}
+//func SendBreakNameToMonitor(address, breakName string) error {
+//	conn, err := net.Dial("tcp", address)
+//	if err != nil {
+//		return fmt.Errorf("failed to connect to monitor at %s: %w", address, err)
+//	}
+//	defer conn.Close()
+//
+//	_, err = conn.Write([]byte(breakName))
+//	if err != nil {
+//		return fmt.Errorf("failed to send break name to monitor: %w", err)
+//	}
+//
+//	return nil
+//}
 

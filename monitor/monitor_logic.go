@@ -1,17 +1,16 @@
 package main
 
 import (
-    "encoding/json"
-    "io"
-    "net"
-    "sync"
-    "time"
-    "fmt"
-"log"
-	    "os"
+	"bufio"
+	"encoding/json"
+	"log"
+	"net"
+	"sync"
+	"time"
+	"os"
 
-    "github.com/pquerna/otp/totp"
-    "shared/types"
+	"github.com/pquerna/otp/totp"
+	"shared/types"
 )
 
 type Heartbeat struct {
@@ -39,62 +38,124 @@ func validateTOTP(code string) bool {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	data, err := io.ReadAll(conn)
-	if err != nil {
-		return
+	scanner := bufio.NewScanner(conn)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		var envelope types.Envelope
+		if err := json.Unmarshal(line, &envelope); err != nil {
+			log.Printf("Failed to parse envelope: %v\nPayload: %s\n", err, string(line))
+			continue
+		}
+
+		switch envelope.Type {
+		case "heartbeat":
+			var hb types.Heartbeat
+			if err := json.Unmarshal(envelope.Data, &hb); err != nil {
+				log.Printf("Invalid heartbeat payload: %v\n", err)
+				continue
+			}
+
+			if !validateTOTP(hb.TOTP) {
+				log.Println("Invalid TOTP")
+				continue
+			}
+
+			mu.Lock()
+			if !hb.First && !hasReceivedFirst {
+				mu.Unlock()
+				continue
+			}
+
+			if hb.First {
+				expectedChecksum = hb.Checksum
+				hasReceivedFirst = true
+			} else if hb.Checksum != expectedChecksum {
+				log.Println("Checksum mismatch detected!")
+			}
+
+			lastHeartbeat = time.Now()
+			mu.Unlock()
+
+		case "chaos_report":
+			var report types.ChaosReport
+			if err := json.Unmarshal(envelope.Data, &report); err != nil {
+				log.Printf("Invalid chaos report payload: %v\n", err)
+				continue
+			}
+			log.Printf("[CHAOS REPORT] %s by %s: %s\n", report.Timestamp, report.Agent, report.Action)
+			saveReport(report)
+
+		default:
+			log.Printf("Unknown message type: %s", envelope)
+		}
 	}
 
-	var envelope types.Envelope
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		fmt.Println("Failed to parse envelope:", err)
-		return
-	}
-
-	switch envelope.Type {
-	case "heartbeat":
-		var hb types.Heartbeat
-		if err := json.Unmarshal(envelope.Data, &hb); err != nil {
-			fmt.Println("Invalid heartbeat:", err)
-			return
-		}
-
-		if !validateTOTP(hb.TOTP) {
-			fmt.Println("Invalid TOTP")
-			return
-		}
-
-		mu.Lock()
-		defer mu.Unlock()
-
-		if !hb.First && !hasReceivedFirst {
-			return
-		}
-
-		if hb.First {
-			expectedChecksum = hb.Checksum
-			hasReceivedFirst = true
-		} else if hb.Checksum != expectedChecksum {
-			// checksum mismatch logic here
-		}
-
-		lastHeartbeat = time.Now()
-
-	case "chaos_report":
-		var report types.ChaosReport
-		if err := json.Unmarshal(envelope.Data, &report); err != nil {
-			fmt.Println("Invalid chaos report:", err)
-			return
-		}
-		//fmt.Printf("[CHAOS REPORT] %s by %s: %s\n", report.Timestamp, report.Agent, report.Action)
-		log.Printf("[CHAOS REPORT] %s by %s: %s\n", report.Timestamp, report.Agent, report.Action)
-
-		saveReport(report)
-
-
-	default:
-		fmt.Println("Unknown message type:", envelope.Type)
+	if err := scanner.Err(); err != nil {
+		log.Printf("Error reading from connection: %v", err)
 	}
 }
+
+//func handleConnection(conn net.Conn) {
+//	defer conn.Close()
+//
+//	data, err := io.ReadAll(conn)
+//	if err != nil {
+//		return
+//	}
+//
+//	var envelope types.Envelope
+//	if err := json.Unmarshal(data, &envelope); err != nil {
+//		fmt.Println("Failed to parse envelope:", err)
+//		return
+//	}
+//
+//	switch envelope.Type {
+//	case "heartbeat":
+//		var hb types.Heartbeat
+//		if err := json.Unmarshal(envelope.Data, &hb); err != nil {
+//			fmt.Println("Invalid heartbeat:", err)
+//			return
+//		}
+//
+//		if !validateTOTP(hb.TOTP) {
+//			fmt.Println("Invalid TOTP")
+//			return
+//		}
+//
+//		mu.Lock()
+//		defer mu.Unlock()
+//
+//		if !hb.First && !hasReceivedFirst {
+//			return
+//		}
+//
+//		if hb.First {
+//			expectedChecksum = hb.Checksum
+//			hasReceivedFirst = true
+//		} else if hb.Checksum != expectedChecksum {
+//			// checksum mismatch logic here
+//		}
+//
+//		lastHeartbeat = time.Now()
+//
+//	case "chaos_report":
+//		var report types.ChaosReport
+//		if err := json.Unmarshal(envelope.Data, &report); err != nil {
+//			fmt.Println("Invalid chaos report:", err)
+//			return
+//		}
+//		//fmt.Printf("[CHAOS REPORT] %s by %s: %s\n", report.Timestamp, report.Agent, report.Action)
+//		log.Printf("[CHAOS REPORT] %s by %s: %s\n", report.Timestamp, report.Agent, report.Action)
+//
+//		saveReport(report)
+//
+//
+//	default:
+//		fmt.Println("Unknown message type:", envelope)
+//	}
+//}
 
 
 func checkHeartbeat() {

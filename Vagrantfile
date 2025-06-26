@@ -4,8 +4,13 @@ Vagrant.configure("2") do |config|
     vm.provision "shell", inline: <<-SHELL
       sudo systemctl enable --now sshd
       sudo dnf update -y
-      sudo dnf install -y golang
-      cd /home/vagrant
+      sudo dnf install -y git
+      su - vagrant -c 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+      echo 'export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin' >> /home/vagrant/.bashrc
+      echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> /home/vagrant/.bashrc
+      echo "brew install golang" >> /home/vagrant/first_run.sh
+      su - vagrant -c 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && brew install go'
+      #cd /home/vagrant
       #su - vagrant -c "cd /home/vagrant && go mod init monitor && go mod tidy"
       #cd /usr/bin/
       #su - root -c "cd /usr/bin && go mod init monitor && go mod tidy"
