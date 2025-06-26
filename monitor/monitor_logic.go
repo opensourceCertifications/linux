@@ -10,7 +10,7 @@ import (
 	"os"
 
 	"github.com/pquerna/otp/totp"
-	"shared/types"
+	"github.com/opensourceCertifications/linux/shared/types"
 )
 
 type Heartbeat struct {
