@@ -8,6 +8,7 @@ import (
 	"strings"
 	"fmt"
 	"testenv/internal/comm"
+	"testenv/internal/registry"
 )
 
 func BreakBootLoader() error {
