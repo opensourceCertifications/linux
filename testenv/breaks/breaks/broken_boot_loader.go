@@ -68,3 +68,8 @@ func logError(msg string) error {
 	log.Println(msg)
 	return fmt.Errorf(msg)
 }
+
+// Auto-register on package init
+func init() {
+    registry.Register("BreakBootLoader", BreakBootLoader)
+}

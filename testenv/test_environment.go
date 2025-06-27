@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/pquerna/otp/totp"
-	"testenv/breaks/breaks"
 	"testenv/internal/comm"
+	"testenv/internal/registry"   // <--- import your registry package here
 	"github.com/opensourceCertifications/linux/shared/types"
 )
 
@@ -29,21 +29,21 @@ func chaosInjector(address string, breakHistory *[]string) {
 		log.Printf("Chaos injector sleeping for %v before next break...", delay)
 		time.Sleep(delay)
 
-		breakFile, err := ExecuteRandomBreak()
+		breakName, err := ExecuteRandomBreak()
 		if err != nil {
 			log.Printf("Failed to select a random break: %v", err)
 			continue
 		}
 
-		log.Printf("Executing chaos break: %s", breakFile)
+		log.Printf("Executing chaos break: %s", breakName)
 
 		report := types.ChaosReport{
 			Timestamp: time.Now().Format(time.RFC3339),
-			Action:    fmt.Sprintf("Executed chaos break: %s", breakFile),
+			Action:    fmt.Sprintf("Executed chaos break: %s", breakName),
 			Agent:     "test_environment",
 		}
 		comm.SendMessage("chaos_report", report)
-		*breakHistory = append(*breakHistory, breakFile)
+		*breakHistory = append(*breakHistory, breakName)
 	}
 }
 
@@ -135,17 +135,27 @@ func GetRandomDuration() time.Duration {
 	return min + time.Duration(rand.Int63n(int64(max-min)))
 }
 
-var chaosFunctions = []struct {
-	Name string
-	Fn   func() error
-}{
-	{"BreakBootLoader", breaks.BreakBootLoader},
+// ExecuteRandomBreak picks a random registered chaos function from the registry and runs it.
+func ExecuteRandomBreak() (string, error) {
+	allChaos := registry.All()
+
+	if len(allChaos) == 0 {
+		return "", fmt.Errorf("no chaos functions registered")
+	}
+
+	// Extract keys to slice for random selection
+	keys := make([]string, 0, len(allChaos))
+	for k := range allChaos {
+		keys = append(keys, k)
+	}
+
+	rand.Seed(time.Now().UnixNano())
+	choice := keys[rand.Intn(len(keys))]
+
+	fn := allChaos[choice]
+
+	log.Printf("Selected chaos function: %s", choice)
+	err := fn()
+	return choice, err
 }
 
-func ExecuteRandomBreak() (string, error) {
-	rand.Seed(time.Now().UnixNano())
-	selected := chaosFunctions[rand.Intn(len(chaosFunctions))]
-	log.Printf("Selected chaos function: %s", selected.Name)
-	err := selected.Fn()
-	return selected.Name, err
-}
