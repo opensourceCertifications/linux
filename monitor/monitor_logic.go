@@ -13,16 +13,6 @@ import (
 	"github.com/opensourceCertifications/linux/shared/types"
 )
 
-type Heartbeat struct {
-    Timestamp string `json:"timestamp"`
-    Status    string `json:"status"`
-    Service   string `json:"service"`
-    Version   string `json:"version"`
-    TOTP      string `json:"totp"`
-    Checksum  string `json:"checksum"`
-    First     bool   `json:"first"`
-}
-
 var (
     lastHeartbeat time.Time
     mu             sync.Mutex
@@ -84,11 +74,20 @@ func handleConnection(conn net.Conn) {
 				log.Printf("Invalid chaos report payload: %v\n", err)
 				continue
 			}
+
+			if report.Timestamp == "" || report.Agent == "" || report.Action == "" {
+				log.Println("Invalid chaos report: missing required fields")
+				continue
+			}
+
+			if report.Timestamp == "" || report.Agent == "" || report.Action == "" {
 			log.Printf("[CHAOS REPORT] %s by %s: %s\n", report.Timestamp, report.Agent, report.Action)
 			saveReport(report)
+		}
 
 		default:
-			log.Printf("Unknown message type: %s", envelope)
+			dump, _ := json.Marshal(envelope)
+			log.Printf("Unknown message type: %s", string(dump))
 		}
 	}
 
@@ -96,67 +95,6 @@ func handleConnection(conn net.Conn) {
 		log.Printf("Error reading from connection: %v", err)
 	}
 }
-
-//func handleConnection(conn net.Conn) {
-//	defer conn.Close()
-//
-//	data, err := io.ReadAll(conn)
-//	if err != nil {
-//		return
-//	}
-//
-//	var envelope types.Envelope
-//	if err := json.Unmarshal(data, &envelope); err != nil {
-//		fmt.Println("Failed to parse envelope:", err)
-//		return
-//	}
-//
-//	switch envelope.Type {
-//	case "heartbeat":
-//		var hb types.Heartbeat
-//		if err := json.Unmarshal(envelope.Data, &hb); err != nil {
-//			fmt.Println("Invalid heartbeat:", err)
-//			return
-//		}
-//
-//		if !validateTOTP(hb.TOTP) {
-//			fmt.Println("Invalid TOTP")
-//			return
-//		}
-//
-//		mu.Lock()
-//		defer mu.Unlock()
-//
-//		if !hb.First && !hasReceivedFirst {
-//			return
-//		}
-//
-//		if hb.First {
-//			expectedChecksum = hb.Checksum
-//			hasReceivedFirst = true
-//		} else if hb.Checksum != expectedChecksum {
-//			// checksum mismatch logic here
-//		}
-//
-//		lastHeartbeat = time.Now()
-//
-//	case "chaos_report":
-//		var report types.ChaosReport
-//		if err := json.Unmarshal(envelope.Data, &report); err != nil {
-//			fmt.Println("Invalid chaos report:", err)
-//			return
-//		}
-//		//fmt.Printf("[CHAOS REPORT] %s by %s: %s\n", report.Timestamp, report.Agent, report.Action)
-//		log.Printf("[CHAOS REPORT] %s by %s: %s\n", report.Timestamp, report.Agent, report.Action)
-//
-//		saveReport(report)
-//
-//
-//	default:
-//		fmt.Println("Unknown message type:", envelope)
-//	}
-//}
-
 
 func checkHeartbeat() {
     ticker := time.NewTicker(1 * time.Second)
@@ -174,6 +112,11 @@ func checkHeartbeat() {
 }
 
 func saveReport(report types.ChaosReport) {
+	path := os.Getenv("CHAOS_REPORT_LOG")
+	if path == "" {
+		path = "/tmp/chaos_reports.log"
+	}
+
 	f, err := os.OpenFile("chaos_reports.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("Failed to open chaos report log: %v", err)
