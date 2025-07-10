@@ -14,15 +14,15 @@ import (
 )
 
 var (
-    lastHeartbeat time.Time
-    mu             sync.Mutex
-    sharedSecret   = "JBSWY3DPEHPK3PXP" // Predefined TOTP secret for testing
-    expectedChecksum string
-    hasReceivedFirst bool
+	lastHeartbeat time.Time
+	mu			 sync.Mutex
+	sharedSecret   = "JBSWY3DPEHPK3PXP" // Predefined TOTP secret for testing
+	expectedChecksum string
+	hasReceivedFirst bool
 )
 
 func validateTOTP(code string) bool {
-    return totp.Validate(code, sharedSecret)
+	return totp.Validate(code, sharedSecret)
 }
 
 func handleConnection(conn net.Conn) {
@@ -86,29 +86,34 @@ func handleConnection(conn net.Conn) {
 		}
 
 		default:
-			dump, _ := json.Marshal(envelope)
-			log.Printf("Unknown message type: %s", string(dump))
+			if json.Valid(envelope.Data) {
+				compact, err := json.Marshal(envelope)
+				if err != nil {
+					log.Printf("Failed to encode envelope for type %q: %v", envelope.Type, err)
+					break
+				}
+				log.Printf("%s", compact)
+			} else {
+				log.Printf("Unknown or malformed message type %q:\n%s",
+					envelope.Type, string(envelope.Data))
+			}
 		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Printf("Error reading from connection: %v", err)
 	}
 }
 
 func checkHeartbeat() {
-    ticker := time.NewTicker(1 * time.Second)
-    defer ticker.Stop()
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-    for range ticker.C {
-        mu.Lock()
-        since := time.Since(lastHeartbeat)
-        mu.Unlock()
+	for range ticker.C {
+		mu.Lock()
+		since := time.Since(lastHeartbeat)
+		mu.Unlock()
 
-        if since > 1*time.Second {
-            println("No heartbeat received in the last second")
-        }
-    }
+		if since > 1*time.Second {
+			println("No heartbeat received in the last second")
+		}
+	}
 }
 
 func saveReport(report types.ChaosReport) {

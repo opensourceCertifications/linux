@@ -22,3 +22,7 @@ type ChaosReport struct {
 	Action    string `json:"action"`
 	Agent     string `json:"agent"`
 }
+
+type General struct {
+	Message string `json:"message"`
+}
