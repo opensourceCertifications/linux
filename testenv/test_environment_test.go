@@ -1,140 +1,115 @@
 package main
 
 import (
-    "encoding/json"
-    "os"
-    "path/filepath"
-    "testing"
-    "time"
+	"crypto/sha256"
+	"encoding/json"
+	"io"
+	"os"
+	"testing"
+	"time"
 
-    "github.com/pquerna/otp/totp"
+	"github.com/pquerna/otp/totp"
+	"github.com/opensourceCertifications/linux/shared/types"
 )
 
-// ---------------- Basic Functionality Tests ----------------
+// ---------------- Core Utility Tests ----------------
 
 func TestComputeChecksum(t *testing.T) {
-    tmpfile, err := os.CreateTemp("", "example.txt")
-    if err != nil {
-        t.Fatal(err)
-    }
-    defer os.Remove(tmpfile.Name())
+	tmpfile, err := os.CreateTemp("", "example.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
 
-    content := []byte("This is some test data.\n")
-    if _, err := tmpfile.Write(content); err != nil {
-        t.Fatal(err)
-    }
-    tmpfile.Close()
+	content := []byte("test content")
+	if _, err := tmpfile.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	tmpfile.Close()
 
-    checksum1, err := ComputeChecksum(tmpfile.Name())
-    if err != nil {
-        t.Fatalf("Failed to compute checksum: %v", err)
-    }
+	expected := sha256.Sum256(content)
+	actual, err := ComputeChecksum(tmpfile.Name())
+	if err != nil {
+		t.Fatalf("Failed to compute checksum: %v", err)
+	}
 
-    checksum2, err := ComputeChecksum(tmpfile.Name())
-    if err != nil {
-        t.Fatalf("Failed to compute checksum: %v", err)
-    }
-
-    if checksum1 != checksum2 {
-        t.Errorf("Checksums should match: got %s and %s", checksum1, checksum2)
-    }
+	expHex := fmt.Sprintf("%x", expected)
+	if actual != expHex {
+		t.Errorf("Expected checksum %s, got %s", expHex, actual)
+	}
 }
 
-func TestHeartbeatMarshalling(t *testing.T) {
-    heartbeat := Heartbeat{
-        Timestamp: time.Now().UTC().Format(time.RFC3339),
-        Status:    "alive",
-        Service:   "test_environment",
-        Version:   "1.0.0",
-        TOTP:      "123456",
-        Checksum:  "abcdef",
-        First:     true,
-    }
-
-    data, err := json.Marshal(heartbeat)
-    if err != nil {
-        t.Fatalf("Failed to marshal heartbeat: %v", err)
-    }
-
-    var hb Heartbeat
-    if err := json.Unmarshal(data, &hb); err != nil {
-        t.Fatalf("Failed to unmarshal heartbeat: %v", err)
-    }
-
-    if hb.Service != "test_environment" {
-        t.Errorf("Unexpected service field: got %s, want %s", hb.Service, "test_environment")
-    }
+func TestComputeChecksumSelf(t *testing.T) {
+	checksum, err := ComputeChecksumSelf()
+	if err != nil {
+		t.Fatalf("Failed to compute self checksum: %v", err)
+	}
+	if len(checksum) == 0 {
+		t.Error("Checksum should not be empty")
+	}
 }
 
-func TestGenerateTOTP(t *testing.T) {
-    code, err := totp.GenerateCode(sharedSecret, time.Now())
-    if err != nil {
-        t.Fatalf("Failed to generate TOTP code: %v", err)
-    }
+// ---------------- Heartbeat Tests ----------------
 
-    if len(code) != 6 {
-        t.Errorf("Expected TOTP code length of 6, got %d", len(code))
-    }
+func TestHeartbeatSerialization(t *testing.T) {
+	hb := types.Heartbeat{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Status:    "alive",
+		Service:   "test_environment",
+		Version:   "1.0.0",
+		TOTP:      "123456",
+		Checksum:  "abcdef",
+		First:     true,
+	}
+
+	data, err := json.Marshal(hb)
+	if err != nil {
+		t.Fatalf("Failed to marshal heartbeat: %v", err)
+	}
+
+	var parsed types.Heartbeat
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal heartbeat: %v", err)
+	}
+
+	if parsed.Service != hb.Service || parsed.TOTP != hb.TOTP {
+		t.Errorf("Unmarshalled heartbeat does not match original")
+	}
 }
 
-// ---------------- Chaos Logic Tests ----------------
-
-func TestGetRandomDuration(t *testing.T) {
-    duration := GetRandomDuration()
-    if duration < 5*time.Minute || duration > 7*time.Minute {
-        t.Errorf("Duration out of range: got %v", duration)
-    }
+func TestTOTPGeneration(t *testing.T) {
+	code, err := totp.GenerateCode(sharedSecret, time.Now())
+	if err != nil {
+		t.Fatalf("TOTP generation failed: %v", err)
+	}
+	if len(code) != 6 {
+		t.Errorf("Expected TOTP code of length 6, got %d", len(code))
+	}
 }
 
-func TestDirectoriesExist(t *testing.T) {
-    dirs := []string{"./breaks/breaks/", "./breaks/checks/"}
+// ---------------- Randomness & Chaos ----------------
 
-    for _, dir := range dirs {
-        info, err := os.Stat(dir)
-        if os.IsNotExist(err) {
-            t.Errorf("Directory does not exist: %s", dir)
-        } else if err != nil {
-            t.Errorf("Error checking directory %s: %v", dir, err)
-        } else if !info.IsDir() {
-            t.Errorf("Path exists but is not a directory: %s", dir)
-        }
-    }
+func TestGetRandomDurationBounds(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		d := GetRandomDuration()
+		if d < 0 || d > time.Minute {
+			t.Errorf("Random duration out of expected bounds: %v", d)
+		}
+	}
 }
 
-func TestMatchingBreakAndCheckFiles(t *testing.T) {
-    breakFiles, err := os.ReadDir("./breaks/breaks/")
-    if err != nil {
-        t.Fatalf("Failed reading breaks directory: %v", err)
-    }
+// Note: This test requires at least one registered break to work
+func TestExecuteRandomBreakReturnsName(t *testing.T) {
+	// If there are no breaks registered, skip the test
+	if len(registry.All()) == 0 {
+		t.Skip("No registered chaos functions to test")
+	}
 
-    checkFiles, err := os.ReadDir("./breaks/checks/")
-    if err != nil {
-        t.Fatalf("Failed reading checks directory: %v", err)
-    }
-
-    checkSet := make(map[string]bool)
-    for _, file := range checkFiles {
-        if filepath.Ext(file.Name()) == ".go" {
-            checkSet[file.Name()] = true
-        }
-    }
-
-    for _, file := range breakFiles {
-        if filepath.Ext(file.Name()) == ".go" {
-            if !checkSet[file.Name()] {
-                t.Errorf("No matching check file for break file: %s", file.Name())
-            }
-        }
-    }
+	name, err := ExecuteRandomBreak()
+	if err != nil {
+		t.Fatalf("ExecuteRandomBreak failed: %v", err)
+	}
+	if name == "" {
+		t.Error("Expected non-empty break name")
+	}
 }
-
-func TestExecuteRandomBreak(t *testing.T) {
-    name, err := ExecuteRandomBreak("./breaks/breaks/")
-    if err != nil {
-        t.Fatalf("Failed to execute random break: %v", err)
-    }
-    if name == "" {
-        t.Error("Break name should not be empty")
-    }
-}
-

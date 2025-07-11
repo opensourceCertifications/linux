@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/pquerna/otp/totp"
+
+	"github.com/opensourceCertifications/linux/shared/types"
 	"testenv/internal/comm"
 	"testenv/internal/registry"   // <--- import your registry package here
-	"github.com/opensourceCertifications/linux/shared/types"
 )
 
 const (
@@ -91,7 +92,7 @@ func startHeartbeat(address string) {
 			continue
 		}
 
-		checksum, err := ComputeChecksum(os.Args[0])
+		checksum, err := ComputeChecksumSelf(os.Args[0])
 		if err != nil {
 			log.Printf("Failed to compute checksum: %v", err)
 			continue
@@ -111,6 +112,14 @@ func startHeartbeat(address string) {
 		comm.SendMessage("heartbeat", heartbeat)
 		time.Sleep(heartbeatDelay)
 	}
+}
+
+func ComputeChecksumSelf() (string, error) {
+	path, err := os.Readlink("/proc/self/exe")
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve binary path: %w", err)
+	}
+	return ComputeChecksum(path)
 }
 
 func ComputeChecksum(path string) (string, error) {
