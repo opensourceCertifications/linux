@@ -17,8 +17,6 @@ func BreakBootLoader() error {
 	grubPath := findGrubCfg()
 	comm.SendMessage("general", types.General{Message: "this is a test message from BreakBootLoader"})
 	if grubPath == "" {
-		//comm.ReportToMonitor("No grub.cfg found!")
-		//comm.SendMessage("chaos_report", "No grub.cfg found!")
 		report := types.ChaosReport{
 			Timestamp: time.Now().Format(time.RFC3339),
 			Action:    fmt.Sprintf("No grub.cfg found!"),
@@ -29,19 +27,12 @@ func BreakBootLoader() error {
 	}
 
 	log.Println("Sabotaging GRUB at:", grubPath)
-
-//	if err := os.Remove("/etc/default/grub"); err != nil && !os.IsNotExist(err) {
-//		log.Printf("Failed to delete /etc/default/grub: %v", err)
-//	} else {
-		//comm.ReportToMonitor("Deleted /etc/default/grub")
-		//comm.SendMessage("chaos_report", "Deleted /etc/default/grub")
-		report := types.ChaosReport{
-			Timestamp: time.Now().Format(time.RFC3339),
-			Action:    fmt.Sprintf("Deleted /etc/default/grub"),
-			Agent:     "test_environment",
-		}
-		comm.SendMessage("chaos_report", report)
-//	}
+	report := types.ChaosReport{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Action:    fmt.Sprintf("Deleted /etc/default/grub"),
+		Agent:     "test_environment",
+	}
+	comm.SendMessage("chaos_report", report)
 
 	if err := removeRootLines(grubPath); err != nil {
 		return err

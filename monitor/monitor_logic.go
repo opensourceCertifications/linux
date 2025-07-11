@@ -80,10 +80,7 @@ func handleConnection(conn net.Conn) {
 				continue
 			}
 
-			if report.Timestamp == "" || report.Agent == "" || report.Action == "" {
 			log.Printf("[CHAOS REPORT] %s by %s: %s\n", report.Timestamp, report.Agent, report.Action)
-			saveReport(report)
-		}
 
 		default:
 			if json.Valid(envelope.Data) {
