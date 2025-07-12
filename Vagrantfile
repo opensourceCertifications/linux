@@ -2,20 +2,27 @@ Vagrant.configure("2") do |config|
   # Define shared shell provisioning
   shell_provision = lambda do |vm|
     vm.provision "shell", inline: <<-SHELL
-      sudo systemctl enable --now sshd
+      # Install prerequisites for Homebrew and Go
       sudo dnf update -y
-      sudo dnf install -y git
+      sudo dnf install -y git curl gcc make procps-ng glibc-devel
+
+      # Enable SSHD
+      sudo systemctl enable --now sshd
+
+      # Install Homebrew as vagrant user
       su - vagrant -c 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-      echo 'export PATH=$PATH:/home/linuxbrew/.linuxbrew/bin' >> /home/vagrant/.bashrc
+
+      # Set up Homebrew environment in .bashrc
+      echo 'export PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH' >> /home/vagrant/.bashrc
       echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> /home/vagrant/.bashrc
-      echo "brew install golang" >> /home/vagrant/first_run.sh
-      su - vagrant -c 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && brew install go'
-      #cd /home/vagrant
-      #su - vagrant -c "cd /home/vagrant && go mod init monitor && go mod tidy"
-      #cd /usr/bin/
-      #su - root -c "cd /usr/bin && go mod init monitor && go mod tidy"
-      #sudo systemctl daemon-reexec
-      #sudo systemctl daemon-reload
+
+      # Install Go with explicit glibc handling
+      su - vagrant -c '
+        export PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH
+        eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+        brew install glibc
+        brew install go
+      '
     SHELL
   end
 
