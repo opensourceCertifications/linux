@@ -7,8 +7,10 @@ import (
 	"bufio"
 	"io"
 	"net"
-
 	"golang.org/x/crypto/ssh"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 )
 
 func main() {
@@ -55,6 +57,16 @@ func main() {
 type ChaosMessage struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
+	Token   string `json:"token"`
+}
+
+func generateToken(nBytes int) (string, error) {
+	b := make([]byte, nBytes)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, command string) error {
@@ -68,6 +80,8 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, command s
 	// Extract the actual port chosen
 	addr := listener.Addr().(*net.TCPAddr)
 	port := addr.Port
+	token, err := generateToken(16) // 16 bytes = 32 hex chars
+	fmt.Printf("🔑 Generated token: %s\n", token)
 	fmt.Printf("📡 Listening on port %d\n", port)
 
 	// Start listener goroutine
@@ -93,9 +107,24 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, command s
 			}
 
 			line = line[:len(line)-1] // Strip newline
-			fmt.Println("🔹", line)
+			fmt.Println("🔹 Raw input:", line)
 
-			if line == "operation_complete" {
+			var msg ChaosMessage
+			if err := json.Unmarshal([]byte(line), &msg); err != nil {
+				fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON: %s\n", line)
+				continue
+			}
+
+			// Token check
+			if msg.Token == token {
+				fmt.Println("🔐 Token check: ✅ valid")
+			} else {
+				fmt.Println("🔐 Token check: ❌ invalid")
+			}
+
+			fmt.Printf("📨 Status: %-20s  Message: %s\n", msg.Status, msg.Message)
+
+			if msg.Status == "operation_complete" {
 				fmt.Println("✅ Operation completed, closing connection.")
 				break
 			}
