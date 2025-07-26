@@ -153,7 +153,8 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 	}
 	defer session.Close()
 
-	compiledPath, err := compileChaosBinary(scriptPath, ip, port, token)
+	monitorIP := os.Getenv("MONITOR_ADDRESS")
+	compiledPath, err := compileChaosBinary(scriptPath, monitorIP, port, token)
 	if err != nil {
 		log.Fatalf("Compilation failed: %v", err)
 	}
@@ -181,9 +182,8 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 
 	fmt.Printf("📦 Copied %s to %s on testenv\n", compiledPath, remotePath)
 
-	check := fmt.Sprintf("for i in {1..5}; do nc -z %s %d && break || sleep 2; done", ip, port)
 	run := fmt.Sprintf("chmod +x %s && %s", compiledPath, compiledPath)
-	fullCmd := fmt.Sprintf("%s && %s", check, run)
+	fullCmd := fmt.Sprintf(run)
 
 	fmt.Printf("🚀 Running remote command on %s...\n", ip)
 	if err := session.Run(fullCmd); err != nil {
@@ -198,6 +198,23 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 	// Step 3: Wait for listener to finish
 	<-done
 	return nil
+}
+
+func getLocalIP() (string, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", fmt.Errorf("failed to list interface addresses: %v", err)
+	}
+
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok &&
+			!ipnet.IP.IsLoopback() &&
+			ipnet.IP.To4() != nil &&
+			ipnet.IP.IsPrivate() {
+			return ipnet.IP.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no suitable local IP address found")
 }
 
 func handleChaosConnection(conn net.Conn, expectedToken string) {
