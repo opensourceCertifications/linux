@@ -110,7 +110,7 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, command s
 	defer session.Close()
 
 	fmt.Printf("🚀 Running remote command on %s...\n", ip)
-	if err := session.Run(command); err != nil {
+	if err := session.Run("touch /tmp/hello"); err != nil {
 		return fmt.Errorf("Command failed: %v", err)
 	}
 
