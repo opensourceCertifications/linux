@@ -11,4 +11,4 @@ require (
 
 require golang.org/x/sys v0.11.0 // indirect
 
-replace github.com/opensourceCertifications/linux/shared => ../shared
+replace github.com/opensourceCertifications/linux/shared => ./shared
