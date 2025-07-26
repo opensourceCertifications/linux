@@ -12,6 +12,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
+	"time"
+	mathrand "math/rand"
+	"strings"
+	"os/exec"
+	"log"
 
 	"github.com/opensourceCertifications/linux/shared/types"
 )
@@ -49,7 +54,14 @@ func main() {
 	}
 
 	// Run remote command
-	err = runRemoteCommandWithListener(targetIP, config, "touch /tmp/hello")
+	scriptPath, err := pickRandomFile("breaks/test")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to pick test file: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
+
+	err = runRemoteCommandWithListener(targetIP, config, scriptPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -67,7 +79,39 @@ func generateToken(nBytes int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, command string) error {
+func pickRandomFile(dir string) (string, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	if err != nil {
+		return "", err
+	}
+	if len(files) == 0 {
+		return "", fmt.Errorf("no .go files found in %s", dir)
+	}
+	mathrand.Seed(time.Now().UnixNano())
+	return files[mathrand.Intn(len(files))], nil
+}
+
+func compileChaosBinary(sourcePath, monitorIP string, port int, token string) (string, error) {
+	outputPath := filepath.Join("/tmp", "break_tool")
+
+	ldflags := fmt.Sprintf("-X 'main.MonitorIP=%s' -X 'main.MonitorPort=%d' -X 'main.Token=%s'", monitorIP, port, token)
+
+	cmd := exec.Command("go", "build", "-o", outputPath, "-ldflags", ldflags, sourcePath)
+	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	fmt.Printf("🛠️ Compiling %s → %s...\n", sourcePath, outputPath)
+	err := cmd.Run()
+	if err != nil {
+		return "", fmt.Errorf("failed to compile chaos binary: %v", err)
+	}
+
+	fmt.Printf("✅ Compiled binary written to: %s\n", outputPath)
+	return outputPath, nil
+}
+
+func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPath string) error {
 	// Step 1: Find random open port
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -109,11 +153,48 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, command s
 	}
 	defer session.Close()
 
-	fmt.Printf("🚀 Running remote command on %s...\n", ip)
-	if err := session.Run("touch /tmp/hello"); err != nil {
-		return fmt.Errorf("Command failed: %v", err)
+	compiledPath, err := compileChaosBinary(scriptPath, ip, port, token)
+	if err != nil {
+		log.Fatalf("Compilation failed: %v", err)
+	}
+	fmt.Printf("✅ Compiled binary: %s\n", compiledPath)
+
+	// Step 2.5: Copy chaos script to testenv using SFTP-over-SSH
+	remotePath := "/tmp/" + filepath.Base(compiledPath)
+	content, err := os.ReadFile(compiledPath)
+	if err != nil {
+		return fmt.Errorf("failed to read local file for scp: %v", err)
 	}
 
+	sess, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create SCP session: %v", err)
+	}
+	defer sess.Close()
+
+	scpCmd := fmt.Sprintf("scp -t /tmp")
+	sess.Stdin = strings.NewReader(fmt.Sprintf("C0644 %d %s\n%s\x00", len(content), filepath.Base(compiledPath), content))
+
+	if err := sess.Run(scpCmd); err != nil {
+		return fmt.Errorf("scp to remote failed: %v", err)
+	}
+
+	fmt.Printf("📦 Copied %s to %s on testenv\n", compiledPath, remotePath)
+
+	check := fmt.Sprintf("for i in {1..5}; do nc -z %s %d && break || sleep 2; done", ip, port)
+	run := fmt.Sprintf("chmod +x %s && %s", compiledPath, compiledPath)
+	fullCmd := fmt.Sprintf("%s && %s", check, run)
+
+	fmt.Printf("🚀 Running remote command on %s...\n", ip)
+	if err := session.Run(fullCmd); err != nil {
+		return fmt.Errorf("Command failed: %v", err)
+	}
+	/*
+	fmt.Printf("🚀 Running remote command on %s...\n", ip)
+	if err := session.Run(compiledPath); err != nil {
+		return fmt.Errorf("Command failed: %v", err)
+	}
+*/
 	// Step 3: Wait for listener to finish
 	<-done
 	return nil
