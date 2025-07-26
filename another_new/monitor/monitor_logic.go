@@ -11,6 +11,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"path/filepath"
+
+	"github.com/opensourceCertifications/linux/shared/types"
 )
 
 func main() {
@@ -22,7 +25,8 @@ func main() {
 	}
 
 	// Read private key
-	key, err := ioutil.ReadFile("/home/vagrant/.ssh/id_ed25519")
+	keyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
+	key, err := ioutil.ReadFile(keyPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading private key: %v\n", err)
 		os.Exit(1)
@@ -52,12 +56,6 @@ func main() {
 	}
 
 	fmt.Println("✅ Successfully ran 'touch /tmp/hello' on", targetIP)
-}
-
-type ChaosMessage struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
-	Token   string `json:"token"`
 }
 
 func generateToken(nBytes int) (string, error) {
@@ -93,42 +91,7 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, command s
 			close(done)
 			return
 		}
-		defer conn.Close()
-
-		reader := bufio.NewReader(conn)
-		for {
-			line, err := reader.ReadString('\n')
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading from connection: %v\n", err)
-				break
-			}
-
-			line = line[:len(line)-1] // Strip newline
-			fmt.Println("🔹 Raw input:", line)
-
-			var msg ChaosMessage
-			if err := json.Unmarshal([]byte(line), &msg); err != nil {
-				fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON: %s\n", line)
-				continue
-			}
-
-			// Token check
-			if msg.Token == token {
-				fmt.Println("🔐 Token check: ✅ valid")
-			} else {
-				fmt.Println("🔐 Token check: ❌ invalid")
-			}
-
-			fmt.Printf("📨 Status: %-20s  Message: %s\n", msg.Status, msg.Message)
-
-			if msg.Status == "operation_complete" {
-				fmt.Println("✅ Operation completed, closing connection.")
-				break
-			}
-		}
+		handleChaosConnection(conn, token)
 		close(done)
 	}()
 
@@ -156,25 +119,42 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, command s
 	return nil
 }
 
-/*
-func runRemoteCommand(ip string, config *ssh.ClientConfig, command string) error {
-	addr := ip + ":22"
-	client, err := ssh.Dial("tcp", addr, config)
-	if err != nil {
-		return fmt.Errorf("SSH dial error to %s: %v", addr, err)
-	}
-	defer client.Close()
+func handleChaosConnection(conn net.Conn, expectedToken string) {
+	defer conn.Close()
 
-	session, err := client.NewSession()
-	if err != nil {
-		return fmt.Errorf("Failed to create session: %v", err)
-	}
-	defer session.Close()
+	reader := bufio.NewReader(conn)
+	for {
+		line, err := reader.ReadString('\n')
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading from connection: %v\n", err)
+			break
+		}
 
-	if err := session.Run(command); err != nil {
-		return fmt.Errorf("Command failed: %v", err)
-	}
+		line = line[:len(line)-1] // Strip newline
+		fmt.Println("🔹 Raw input:", line)
 
-	return nil
+		var msg types.ChaosMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON: %s\n", line)
+			continue
+		}
+
+		// Token check
+		if msg.Token == expectedToken {
+			fmt.Println("🔐 Token check: ✅ valid")
+		} else {
+			fmt.Println("🔐 Token check: ❌ invalid")
+		}
+
+		fmt.Printf("📨 Status: %-20s  Message: %s\n", msg.Status, msg.Message)
+
+		if msg.Status == "operation_complete" {
+			fmt.Println("✅ Operation completed, closing connection.")
+			break
+		}
+	}
 }
-*/
+

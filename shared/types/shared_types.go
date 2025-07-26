@@ -26,3 +26,9 @@ type ChaosReport struct {
 type General struct {
 	Message string `json:"message"`
 }
+
+type ChaosMessage struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	Token   string `json:"token"`
+}
