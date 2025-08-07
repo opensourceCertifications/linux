@@ -9,7 +9,9 @@ import (
 	"net"
 	"golang.org/x/crypto/ssh"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"crypto/aes"
 	"encoding/json"
 	"path/filepath"
 	"time"
@@ -91,7 +93,7 @@ func pickRandomFile(dir string) (string, error) {
 	return files[mathrand.Intn(len(files))], nil
 }
 
-func compileChaosBinary(sourcePath, monitorIP string, port int, token string) (string, error) {
+func compileChaosBinary(sourcePath, monitorIP string, port int, token string, encryptionKey string) (string, error) {
 	outputPath := filepath.Join("/tmp", "break_tool")
 
 	ldflags := fmt.Sprintf("-X 'main.MonitorIP=%s' -X 'main.MonitorPort=%d' -X 'main.Token=%s'", monitorIP, port, token)
@@ -154,7 +156,8 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 	defer session.Close()
 
 	monitorIP := os.Getenv("MONITOR_ADDRESS")
-	compiledPath, err := compileChaosBinary(scriptPath, monitorIP, port, token)
+	encryptionKey, err := GenerateEncryptionKey(32) // 32 bytes = 64 hex chars
+	compiledPath, err := compileChaosBinary(scriptPath, monitorIP, port, token, encryptionKey)
 	if err != nil {
 		log.Fatalf("Compilation failed: %v", err)
 	}
@@ -218,9 +221,17 @@ func handleChaosConnection(conn net.Conn, expectedToken string) {
 		line = line[:len(line)-1] // Strip newline
 		fmt.Println("🔹 Raw input:", line)
 
+		// Attempt to decrypt the incoming message
+		encryptedData := []byte(line)
+		plaintext, err := DecryptMessage(encryptedData, encryptionKey)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️ Failed to decrypt message: %v\n", err)
+			continue
+		}
+
 		var msg types.ChaosMessage
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON: %s\n", line)
+		if err := json.Unmarshal([]byte(plaintext), &msg); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON: %s\n", plaintext)
 			continue
 		}
 
@@ -240,3 +251,55 @@ func handleChaosConnection(conn net.Conn, expectedToken string) {
 	}
 }
 
+
+// GenerateEncryptionKey generates a secure random encryption key of the specified length (in bytes)
+func GenerateEncryptionKey(keyLength int) (string, error) {
+	// Generate a random byte slice of the specified length
+	key := make([]byte, keyLength)
+	_, err := rand.Read(key)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate encryption key: %v", err)
+	}
+
+	fmt.Printf("🔑 Generated encryption key of length %d bytes\n", keyLength)
+	fmt.Printf("🔑 Key (hex): %s\n", hex.EncodeToString(key))
+	// Convert the key to a hex string for easy storage and transfer
+	return hex.EncodeToString(key), nil
+}
+
+// DecryptMessage decrypts an encrypted message using AES-GCM with the provided encryption key
+func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) {
+	// Convert the hex-encoded encryption key to bytes
+	key, err := hex.DecodeString(encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode encryption key: %v", err)
+	}
+
+	// Ensure the key is the correct length for AES (32 bytes for AES-256)
+	if len(key) != 32 {
+		return nil, fmt.Errorf("invalid encryption key length: %d bytes (expected 32 bytes)", len(key))
+	}
+
+	// Separate the nonce (first 12 bytes) and ciphertext (rest of the data)
+	nonce, ciphertext := encryptedData[:12], encryptedData[12:]
+
+	// Initialize AES-GCM cipher block
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
+	}
+
+	// Create an AES-GCM cipher instance
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AES-GCM cipher: %v", err)
+	}
+
+	// Decrypt the ciphertext using the AES-GCM cipher
+	plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt message: %v", err)
+	}
+
+	return plaintext, nil
+}
