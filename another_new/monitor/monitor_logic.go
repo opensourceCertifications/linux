@@ -9,9 +9,9 @@ import (
 	"net"
 	"golang.org/x/crypto/ssh"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"crypto/aes"
+	"crypto/cipher"  // Import cipher package for AES-GCM
 	"encoding/json"
 	"path/filepath"
 	"time"
@@ -128,6 +128,13 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 	fmt.Printf("🔑 Generated token: %s\n", token)
 	fmt.Printf("📡 Listening on port %d\n", port)
 
+	// Generate the encryption key
+	encryptionKey, err := GenerateEncryptionKey(32) // 32 bytes = 64 hex chars
+	if err != nil {
+		return fmt.Errorf("failed to generate encryption key: %v", err)
+	}
+	fmt.Printf("🔑 Generated encryption key: %s\n", encryptionKey)
+
 	// Start listener goroutine
 	done := make(chan struct{})
 	go func() {
@@ -137,9 +144,12 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 			close(done)
 			return
 		}
-		handleChaosConnection(conn, token)
+		handleChaosConnection(conn, token, encryptionKey) // Pass encryptionKey here
 		close(done)
 	}()
+
+	// Ensure the listener stays open and accepts a connection
+	<-done // Wait for the listener goroutine to complete
 
 	// Step 2: SSH and run the command
 	addrStr := ip + ":22"
@@ -156,7 +166,6 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 	defer session.Close()
 
 	monitorIP := os.Getenv("MONITOR_ADDRESS")
-	encryptionKey, err := GenerateEncryptionKey(32) // 32 bytes = 64 hex chars
 	compiledPath, err := compileChaosBinary(scriptPath, monitorIP, port, token, encryptionKey)
 	if err != nil {
 		log.Fatalf("Compilation failed: %v", err)
@@ -193,18 +202,13 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 	if err := session.Run(fullCmd); err != nil {
 		return fmt.Errorf("Command failed: %v", err)
 	}
-	/*
-	fmt.Printf("🚀 Running remote command on %s...\n", ip)
-	if err := session.Run(compiledPath); err != nil {
-		return fmt.Errorf("Command failed: %v", err)
-	}
-*/
+
 	// Step 3: Wait for listener to finish
 	<-done
 	return nil
 }
 
-func handleChaosConnection(conn net.Conn, expectedToken string) {
+func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey string) {
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
@@ -250,7 +254,6 @@ func handleChaosConnection(conn net.Conn, expectedToken string) {
 		}
 	}
 }
-
 
 // GenerateEncryptionKey generates a secure random encryption key of the specified length (in bytes)
 func GenerateEncryptionKey(keyLength int) (string, error) {
