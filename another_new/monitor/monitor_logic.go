@@ -16,60 +16,62 @@ import (
 	"path/filepath"
 	"time"
 	mathrand "math/rand"
-	"strings"
 	"os/exec"
-	"log"
+	"encoding/binary"
 
 	"github.com/opensourceCertifications/linux/shared/types"
 )
 
 func main() {
-	// Get IP from environment variable
-	targetIP := os.Getenv("TESTENV_ADDRESS")
-	if targetIP == "" {
-		fmt.Fprintln(os.Stderr, "Error: TESTENV_ADDRESS environment variable not set")
-		os.Exit(1)
-	}
+    // Get IP from environment variable
+    targetIP := os.Getenv("TESTENV_ADDRESS")
+    if targetIP == "" {
+        fmt.Fprintln(os.Stderr, "Error: TESTENV_ADDRESS environment variable not set")
+        os.Exit(1) // This line is okay for startup, but subsequent errors won't exit the service
+    }
 
-	// Read private key
-	keyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
-	key, err := ioutil.ReadFile(keyPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading private key: %v\n", err)
-		os.Exit(1)
-	}
+    // Read private key (handles SSH connection)
+    keyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
+    key, err := ioutil.ReadFile(keyPath)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Error reading private key: %v\n", err)
+        os.Exit(1)
+    }
 
-	// Parse key
-	signer, err := ssh.ParsePrivateKey(key)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing private key: %v\n", err)
-		os.Exit(1)
-	}
+    // Parse key
+    signer, err := ssh.ParsePrivateKey(key)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Error parsing private key: %v\n", err)
+        os.Exit(1)
+    }
 
-	// SSH config
-	config := &ssh.ClientConfig{
-		User: "vagrant",
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(signer),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // ⚠️ ok for testing only
-	}
+    // SSH config (for remote interaction)
+    config := &ssh.ClientConfig{
+        User: "vagrant",
+        Auth: []ssh.AuthMethod{
+            ssh.PublicKeys(signer),
+        },
+        HostKeyCallback: ssh.InsecureIgnoreHostKey(), // ⚠️ ok for testing only
+    }
 
-	// Run remote command
-	scriptPath, err := pickRandomFile("breaks/test")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to pick test file: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
+    // Run remote command (this will pick a test file from "breaks/breaks")
+    scriptPath, err := pickRandomFile("breaks/breaks")
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Failed to pick test file: %v\n", err)
+        os.Exit(1)
+    }
+    fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
 
-	err = runRemoteCommandWithListener(targetIP, config, scriptPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+    // Start the listener and wait for connections
+    err = runRemoteCommandWithListener(targetIP, config, scriptPath)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)  // This will exit only on critical failure to start service
+    }
 
-	fmt.Println("✅ Successfully ran 'touch /tmp/hello' on", targetIP)
+    fmt.Println("✅ Successfully ran 'touch /tmp/hello' on", targetIP)
+
+    // The service should now keep running and processing incoming connections
 }
 
 func generateToken(nBytes int) (string, error) {
@@ -103,11 +105,11 @@ func compileChaosBinary(sourcePath, monitorIP string, port int, token string, en
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Printf("🛠️ Compiling %s → %s...\n", sourcePath, outputPath)
-	err := cmd.Run()
-	if err != nil {
-		return "", fmt.Errorf("failed to compile chaos binary: %v", err)
-	}
+	//fmt.Printf("🛠️ Compiling %s → %s...\n", sourcePath, outputPath)
+	//err := cmd.Run()
+	//if err != nil {
+	//	return "", fmt.Errorf("failed to compile chaos binary: %v", err)
+	//}
 
 	fmt.Printf("✅ Compiled binary written to: %s\n", outputPath)
 	return outputPath, nil
@@ -115,7 +117,7 @@ func compileChaosBinary(sourcePath, monitorIP string, port int, token string, en
 
 func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPath string) error {
 	// Step 1: Find random open port
-	listener, err := net.Listen("tcp", ":0")
+	listener, err := net.Listen("tcp", ":0") // Open a TCP port and start listening
 	if err != nil {
 		return fmt.Errorf("Failed to open listener: %v", err)
 	}
@@ -130,81 +132,23 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 
 	// Generate the encryption key
 	encryptionKey, err := GenerateEncryptionKey(32) // 32 bytes = 64 hex chars
+	fmt.Printf("🔑 Generated encryption key: %s\n", encryptionKey)
 	if err != nil {
 		return fmt.Errorf("failed to generate encryption key: %v", err)
 	}
-	fmt.Printf("🔑 Generated encryption key: %s\n", encryptionKey)
 
-	// Start listener goroutine
-	done := make(chan struct{})
-	go func() {
-		conn, err := listener.Accept()
+	// Step 2: Keep accepting connections in a loop
+	for {
+		conn, err := listener.Accept() // Accept an incoming connection
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to accept connection: %v\n", err)
-			close(done)
-			return
+			continue // Continue waiting for new connections even if one fails
 		}
-		handleChaosConnection(conn, token, encryptionKey) // Pass encryptionKey here
-		close(done)
-	}()
-
-	// Ensure the listener stays open and accepts a connection
-	<-done // Wait for the listener goroutine to complete
-
-	// Step 2: SSH and run the command
-	addrStr := ip + ":22"
-	client, err := ssh.Dial("tcp", addrStr, config)
-	if err != nil {
-		return fmt.Errorf("SSH dial error to %s: %v", addrStr, err)
-	}
-	defer client.Close()
-
-	session, err := client.NewSession()
-	if err != nil {
-		return fmt.Errorf("Failed to create session: %v", err)
-	}
-	defer session.Close()
-
-	monitorIP := os.Getenv("MONITOR_ADDRESS")
-	compiledPath, err := compileChaosBinary(scriptPath, monitorIP, port, token, encryptionKey)
-	if err != nil {
-		log.Fatalf("Compilation failed: %v", err)
-	}
-	fmt.Printf("✅ Compiled binary: %s\n", compiledPath)
-
-	// Step 2.5: Copy chaos script to testenv using SFTP-over-SSH
-	remotePath := "/tmp/" + filepath.Base(compiledPath)
-	content, err := os.ReadFile(compiledPath)
-	if err != nil {
-		return fmt.Errorf("failed to read local file for scp: %v", err)
+		// Handle the connection in a separate goroutine so it doesn't block other connections
+		go handleChaosConnection(conn, token, encryptionKey)
 	}
 
-	sess, err := client.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create SCP session: %v", err)
-	}
-	defer sess.Close()
-
-	scpCmd := fmt.Sprintf("scp -t /tmp")
-	sess.Stdin = strings.NewReader(fmt.Sprintf("C0644 %d %s\n%s\x00", len(content), filepath.Base(compiledPath), content))
-
-	if err := sess.Run(scpCmd); err != nil {
-		return fmt.Errorf("scp to remote failed: %v", err)
-	}
-
-	fmt.Printf("📦 Copied %s to %s on testenv\n", compiledPath, remotePath)
-
-	//run := fmt.Sprintf("chmod +x %s && %s", compiledPath, compiledPath)
-	run := fmt.Sprintf("chmod +x %s", compiledPath)
-	fullCmd := fmt.Sprintf(run)
-
-	fmt.Printf("🚀 Running remote command on %s...\n", ip)
-	if err := session.Run(fullCmd); err != nil {
-		return fmt.Errorf("Command failed: %v", err)
-	}
-
-	// Step 3: Wait for listener to finish
-	<-done
+	// This point is never reached due to the infinite loop above.
 	return nil
 }
 
@@ -212,45 +156,65 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
+
 	for {
-		line, err := reader.ReadString('\n')
+		// Step 1: Read the 4-byte length prefix
+		lengthBuf := make([]byte, 4)
+		_, err := io.ReadFull(reader, lengthBuf)
 		if err == io.EOF {
-			break
+			// client disconnected
+			fmt.Println("📴 Client disconnected.")
+			return
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading from connection: %v\n", err)
-			break
+			fmt.Fprintf(os.Stderr, "❌ Error reading message length: %v\n", err)
+			return
 		}
 
-		line = line[:len(line)-1] // Strip newline
-		fmt.Println("🔹 Raw input:", line)
+		msgLen := binary.BigEndian.Uint32(lengthBuf)
+		if msgLen == 0 {
+			fmt.Fprintf(os.Stderr, "⚠️ Received zero-length message\n")
+			continue
+		}
 
-		// Attempt to decrypt the incoming message
-		encryptedData := []byte(line)
+		// Step 2: Read the encrypted message
+		encryptedData := make([]byte, msgLen)
+		_, err = io.ReadFull(reader, encryptedData)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "❌ Error reading encrypted message: %v\n", err)
+			return
+		}
+
+		fmt.Printf("🔹 Raw input (encrypted %d bytes): %x\n", msgLen, encryptedData)
+
+		// Step 3: Decrypt the message
 		plaintext, err := DecryptMessage(encryptedData, encryptionKey)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️ Failed to decrypt message: %v\n", err)
 			continue
 		}
 
+		// Step 4: Decode JSON
 		var msg types.ChaosMessage
-		if err := json.Unmarshal([]byte(plaintext), &msg); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON: %s\n", plaintext)
+		if err := json.Unmarshal(plaintext, &msg); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON after decryption: %s\n", plaintext)
 			continue
 		}
 
-		// Token check
+		fmt.Println("🔓 Decrypted JSON message:", string(plaintext))
+
+		// Step 5: Token check
 		if msg.Token == expectedToken {
 			fmt.Println("🔐 Token check: ✅ valid")
 		} else {
 			fmt.Println("🔐 Token check: ❌ invalid")
 		}
 
+		// Step 6: Process message
 		fmt.Printf("📨 Status: %-20s  Message: %s\n", msg.Status, msg.Message)
 
 		if msg.Status == "operation_complete" {
-			fmt.Println("✅ Operation completed, closing connection.")
-			break
+			fmt.Println("✅ Operation completed, continuing to listen for new messages.")
 		}
 	}
 }
@@ -272,37 +236,53 @@ func GenerateEncryptionKey(keyLength int) (string, error) {
 
 // DecryptMessage decrypts an encrypted message using AES-GCM with the provided encryption key
 func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) {
-	// Convert the hex-encoded encryption key to bytes
-	key, err := hex.DecodeString(encryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode encryption key: %v", err)
-	}
+    // Convert the hex-encoded encryption key to bytes
+    key, err := hex.DecodeString(encryptionKey)
+    if err != nil {
+        return nil, fmt.Errorf("failed to decode encryption key: %v", err)
+    }
 
-	// Ensure the key is the correct length for AES (32 bytes for AES-256)
-	if len(key) != 32 {
-		return nil, fmt.Errorf("invalid encryption key length: %d bytes (expected 32 bytes)", len(key))
-	}
+    // Ensure the key is the correct length for AES (32 bytes for AES-256)
+    if len(key) != 32 {
+        return nil, fmt.Errorf("invalid encryption key length: %d bytes (expected 32 bytes)", len(key))
+    }
 
-	// Separate the nonce (first 12 bytes) and ciphertext (rest of the data)
-	nonce, ciphertext := encryptedData[:12], encryptedData[12:]
+    // Separate the nonce (first 12 bytes) and ciphertext (rest of the data)
+    nonce, ciphertext := encryptedData[:12], encryptedData[12:]
+    // Separate the last 16 bytes (authentication tag)
 
-	// Initialize AES-GCM cipher block
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
-	}
+    tagCopy := ciphertext[len(ciphertext)-16:]
+    ciphertextCopy := ciphertext[:len(ciphertext)-16] // Remove the tag from ciphertext
 
-	// Create an AES-GCM cipher instance
-	aesgcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create AES-GCM cipher: %v", err)
-	}
+    // Log the nonce and ciphertext for debugging
+    fmt.Printf("🔑 Nonce: %x\n", nonce)
+    fmt.Printf("🔒 Ciphertext: %x\n", ciphertextCopy)
+    fmt.Printf("🔑 encryptedData: %s\n", encryptedData[:12])
+    fmt.Printf("🔒 Tag: %x\n", tagCopy)
+    fmt.Printf("🔑 Nonce (%d bytes): %x\n", len(nonce), nonce)
+    fmt.Printf("🔒 Ciphertext (%d bytes): %x\n", len(ciphertextCopy), ciphertextCopy)
+    fmt.Printf("🔐 Tag (%d bytes): %x\n", len(tagCopy), tagCopy)
 
-	// Decrypt the ciphertext using the AES-GCM cipher
-	plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt message: %v", err)
-	}
+    // Initialize AES-GCM cipher block
+    block, err := aes.NewCipher(key)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create AES cipher: %v", err)
+    }
 
-	return plaintext, nil
+    // Create an AES-GCM cipher instance
+    aesgcm, err := cipher.NewGCM(block)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create AES-GCM cipher: %v", err)
+    }
+
+    // Decrypt the ciphertext using the AES-GCM cipher
+    plaintext, err := aesgcm.Open(nil, nonce, ciphertext, nil)
+    if err != nil {
+        return nil, fmt.Errorf("failed to decrypt message: %v", err)
+    }
+
+    fmt.Printf("🔓 Decrypted plaintext: %s\n", plaintext)
+    return plaintext, nil
 }
+
+
