@@ -116,43 +116,53 @@ func compileChaosBinary(sourcePath, monitorIP string, port int, token string, en
 }
 
 func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPath string) error {
-	// Step 1: Find random open port
-	listener, err := net.Listen("tcp", ":0") // Open a TCP port and start listening
-	if err != nil {
-		return fmt.Errorf("Failed to open listener: %v", err)
-	}
-	defer listener.Close()
-
-	// Extract the actual port chosen
-	addr := listener.Addr().(*net.TCPAddr)
-	port := addr.Port
-	token, err := generateToken(16) // 16 bytes = 32 hex chars
-	fmt.Printf("🔑 Generated token: %s\n", token)
-	fmt.Printf("📡 Listening on port %d\n", port)
-
-	// Generate the encryption key
-	encryptionKey, err := GenerateEncryptionKey(32) // 32 bytes = 64 hex chars
-	fmt.Printf("🔑 Generated encryption key: %s\n", encryptionKey)
-	if err != nil {
-		return fmt.Errorf("failed to generate encryption key: %v", err)
-	}
-
-	// Step 2: Keep accepting connections in a loop
 	for {
-		conn, err := listener.Accept() // Accept an incoming connection
+		// Step 1: Find random open port
+		listener, err := net.Listen("tcp", ":0") // Open a TCP port and start listening
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to accept connection: %v\n", err)
-			continue // Continue waiting for new connections even if one fails
+			return fmt.Errorf("Failed to open listener: %v", err)
 		}
-		// Handle the connection in a separate goroutine so it doesn't block other connections
-		go handleChaosConnection(conn, token, encryptionKey)
-	}
+		defer listener.Close()
 
-	// This point is never reached due to the infinite loop above.
-	return nil
+		// Extract the actual port chosen
+		addr := listener.Addr().(*net.TCPAddr)
+		port := addr.Port
+		token, err := generateToken(16) // 16 bytes = 32 hex chars
+		fmt.Printf("🔑 Generated token: %s\n", token)
+		fmt.Printf("📡 Listening on port %d\n", port)
+
+		// Generate the encryption key
+		encryptionKey, err := GenerateEncryptionKey(32) // 32 bytes = 64 hex chars
+		fmt.Printf("🔑 Generated encryption key: %s\n", encryptionKey)
+		if err != nil {
+			return fmt.Errorf("failed to generate encryption key: %v", err)
+		}
+
+		// Step 2: Keep accepting connections in a loop
+		for {
+			conn, err := listener.Accept() // Accept an incoming connection
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to accept connection: %v\n", err)
+				continue // Continue waiting for new connections even if one fails
+			}
+			// Handle the connection in a separate goroutine so it doesn't block other connections
+			//go handleChaosConnection(conn, token, encryptionKey)
+			opperation := handleChaosConnection(conn, token, encryptionKey)
+			if opperation == "complete" {
+				fmt.Println("✅ Operation completed successfully, exiting listener.")
+				listener.Close()
+				break
+				//return nil // Exit the listener loop if operation is complete
+			}
+		}
+
+		// This point is never reached due to the infinite loop above.
+		//return nil
+		defer listener.Close()
+	}
 }
 
-func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey string) {
+func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey string) string {
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
@@ -164,11 +174,11 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		if err == io.EOF {
 			// client disconnected
 			fmt.Println("📴 Client disconnected.")
-			return
+			return "disconnected"
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "❌ Error reading message length: %v\n", err)
-			return
+			return "error"
 		}
 
 		msgLen := binary.BigEndian.Uint32(lengthBuf)
@@ -182,7 +192,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		_, err = io.ReadFull(reader, encryptedData)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "❌ Error reading encrypted message: %v\n", err)
-			return
+			return "error"
 		}
 
 		fmt.Printf("🔹 Raw input (encrypted %d bytes): %x\n", msgLen, encryptedData)
@@ -206,15 +216,18 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		// Step 5: Token check
 		if msg.Token == expectedToken {
 			fmt.Println("🔐 Token check: ✅ valid")
+			msg.TokenCheck = true
 		} else {
 			fmt.Println("🔐 Token check: ❌ invalid")
+			msg.TokenCheck = false
 		}
 
 		// Step 6: Process message
 		fmt.Printf("📨 Status: %-20s  Message: %s\n", msg.Status, msg.Message)
 
-		if msg.Status == "operation_complete" {
+		if msg.Status == "operation_complete" && msg.TokenCheck {
 			fmt.Println("✅ Operation completed, continuing to listen for new messages.")
+			return "complete"
 		}
 	}
 }
