@@ -1,33 +1,38 @@
 package main
 
 import (
-	"encoding/json"
+	//"encoding/json"
 	"fmt"
 	"os"
 
-	"github.com/opensourceCertifications/linux/shared/types"
+	//"github.com/opensourceCertifications/linux/shared/types"
 	"github.com/opensourceCertifications/linux/shared/library"
 )
 
 func sendOperationComplete(ip string, port int, token string, encryptionKey string) error {
 	// Prepare the JSON payload using the shared ChaosMessage type
-	msg := types.ChaosMessage{
-		Status:  "operation_complete",
-		Message: "done",
-		Token:   token,
+	//msg := types.ChaosMessage{
+	//	Status:  "operation_complete",
+	//	Message: "done",
+	//	Token:   token,
+	//}
+	fmt.Printf("I am about to send a general message")
+	if err := library.SendMessage(ip, port, "operation_complete", "this is a test", token, encryptionKey); err != nil {
+		fmt.Printf("Error sending message: %v\n", err)
+		return err
 	}
 
 	// Marshal the message to JSON
-	jsonData, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %v", err)
-	}
+	//jsonData, err := json.Marshal(msg)
+	//if err != nil {
+	//	return fmt.Errorf("failed to marshal JSON: %v", err)
+	//}
 
 	// Use the SendRawMessage function from the library to send the encrypted message
-	err = library.SendRawMessage(ip, port, string(jsonData), encryptionKey)
-	if err != nil {
-		return fmt.Errorf("failed to send message: %v", err)
-	}
+	//err = library.SendRawMessage(ip, port, string(jsonData), encryptionKey)
+	//if err != nil {
+	//	return fmt.Errorf("failed to send message: %v", err)
+	//}
 
 	fmt.Println("✅ Operation complete message sent successfully!")
 	return nil

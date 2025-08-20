@@ -1,23 +1,25 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
-	"os"
 	"bufio"
-	"io"
-	"net"
-	"golang.org/x/crypto/ssh"
-	"crypto/rand"
-	"encoding/hex"
 	"crypto/aes"
-	"crypto/cipher"  // Import cipher package for AES-GCM
-	"encoding/json"
-	"path/filepath"
-	"time"
-	mathrand "math/rand"
-	"os/exec"
+	"crypto/cipher" // Import cipher package for AES-GCM
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"io/ioutil"
+	mathrand "math/rand"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"github.com/opensourceCertifications/linux/shared/types"
 )
@@ -98,22 +100,61 @@ func pickRandomFile(dir string) (string, error) {
 func compileChaosBinary(sourcePath, monitorIP string, port int, token string, encryptionKey string) (string, error) {
 	outputPath := filepath.Join("/tmp", "break_tool")
 
-	ldflags := fmt.Sprintf("-X 'main.MonitorIP=%s' -X 'main.MonitorPort=%d' -X 'main.Token=%s'", monitorIP, port, token)
+	fmt.Printf("📁 Source path: %s\n", sourcePath)
+	ldflags := fmt.Sprintf("-X=main.MonitorIP=%s -X=main.MonitorPortStr=%s -X=main.Token=%s -X=main.EncryptionKey=%s", monitorIP, strconv.Itoa(port), token, encryptionKey)
 
 	cmd := exec.Command("go", "build", "-o", outputPath, "-ldflags", ldflags, sourcePath)
 	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	//fmt.Printf("🛠️ Compiling %s → %s...\n", sourcePath, outputPath)
-	//err := cmd.Run()
-	//if err != nil {
-	//	return "", fmt.Errorf("failed to compile chaos binary: %v", err)
-	//}
+	fmt.Printf("🛠️ Compiling %s → %s...\n", sourcePath, outputPath)
+	err := cmd.Run()
+	if err != nil {
+		return "", fmt.Errorf("failed to compile chaos binary: %v", err)
+	}
 
 	fmt.Printf("✅ Compiled binary written to: %s\n", outputPath)
 	return outputPath, nil
 }
+
+// copy the compiled binary to the remote VM using scp
+func scpToRemote(ip, localPath, remotePath string) error {
+    keyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
+    // -o StrictHostKeyChecking=no is fine for your local test setup
+    cmd := exec.Command(
+        "scp",
+        "-i", keyPath,
+        "-o", "StrictHostKeyChecking=no",
+        localPath,
+        fmt.Sprintf("vagrant@%s:%s", ip, remotePath),
+    )
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    return cmd.Run()
+}
+
+// run the binary remotely via SSH (background)
+func runRemoteBinary(ip string, config *ssh.ClientConfig, remotePath string) error {
+    client, err := ssh.Dial("tcp", ip+":22", config)
+    if err != nil {
+        return fmt.Errorf("ssh dial failed: %w", err)
+    }
+    defer client.Close()
+
+    session, err := client.NewSession()
+    if err != nil {
+        return fmt.Errorf("new ssh session failed: %w", err)
+    }
+    defer session.Close()
+
+    // chmod, then start in background; log to /tmp/break_tool.log
+    cmd := fmt.Sprintf("chmod +x %s && nohup sudo %s >/tmp/break_tool.log 2>&1 &", remotePath, remotePath)
+    session.Stdout = os.Stdout
+    session.Stderr = os.Stderr
+    return session.Run(cmd)
+}
+
 
 func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPath string) error {
 	for {
@@ -136,6 +177,20 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 		fmt.Printf("🔑 Generated encryption key: %s\n", encryptionKey)
 		if err != nil {
 			return fmt.Errorf("failed to generate encryption key: %v", err)
+		}
+		monitorIP := os.Getenv("MONITOR_ADDRESS")
+		localBin, err := compileChaosBinary(scriptPath, monitorIP, port, token, encryptionKey)
+		if err != nil {
+			return err
+		}
+
+		// Ship it to testenv and start it
+		const remoteBin = "/tmp/break_tool"
+		if err := scpToRemote(ip, localBin, remoteBin); err != nil {
+			return fmt.Errorf("scp failed: %w", err)
+		}
+		if err := runRemoteBinary(ip, config, remoteBin); err != nil {
+			return fmt.Errorf("remote start failed: %w", err)
 		}
 
 		// Step 2: Keep accepting connections in a loop
@@ -225,9 +280,25 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		// Step 6: Process message
 		fmt.Printf("📨 Status: %-20s  Message: %s\n", msg.Status, msg.Message)
 
-		if msg.Status == "operation_complete" && msg.TokenCheck {
-			fmt.Println("✅ Operation completed, continuing to listen for new messages.")
-			return "complete"
+		//if msg.Status == "operation_complete" && msg.TokenCheck {
+		//	fmt.Println("✅ Operation completed, continuing to listen for new messages.")
+		//	return "complete"
+		//}
+		switch msg.Status {
+			case "operation_complete":
+				if msg.TokenCheck {
+					fmt.Println("✅ Operation completed, continuing to listen for new messages.")
+					return "complete"
+				} else {
+					fmt.Println("❌ Operation_complete received but token check failed")
+				}
+
+			case "general":
+				// just print the message
+				fmt.Printf("📢 General: %s\n", msg.Message)
+
+			default:
+				fmt.Printf("⚠️ Unknown message type: %s\n", msg.Status)
 		}
 	}
 }

@@ -1,4 +1,4 @@
-package breaks
+package main
 
 import (
 	"io/ioutil"
@@ -7,32 +7,39 @@ import (
 	"os/exec"
 	"strings"
 	"fmt"
-	"time"
-	"testenv/internal/comm"
-	"testenv/internal/registry"
-	"github.com/opensourceCertifications/linux/shared/types"
+	"strconv"
+	"github.com/opensourceCertifications/linux/shared/library"
+)
+
+
+var (
+	MonitorIP     string
+	MonitorPortStr string
+	MonitorPort   int
+	Token         string
+	EncryptionKey string
 )
 
 func BreakBootLoader() error {
 	grubPath := findGrubCfg()
-	comm.SendMessage("general", types.General{Message: "this is a test message from BreakBootLoader"})
+	if err := library.SendMessage(MonitorIP, MonitorPort, "log", fmt.Sprint("found grub file %s", grubPath), Token, EncryptionKey); err != nil {
+		fmt.Printf("Error sending message: %v\n", err)
+		return err
+	}
+
 	if grubPath == "" {
-		report := types.ChaosReport{
-			Timestamp: time.Now().Format(time.RFC3339),
-			Action:    fmt.Sprintf("No grub.cfg found!"),
-			Agent:     "test_environment",
+		if err := library.SendMessage(MonitorIP, MonitorPort, "chaos_report", "no grub.cfg found", Token, EncryptionKey); err != nil {
+			fmt.Printf("Error sending message: %v\n", err)
+			return err
 		}
-		comm.SendMessage("chaos_report", report)
 		return logError("No grub.cfg found!")
 	}
 
 	log.Println("Sabotaging GRUB at:", grubPath)
-	report := types.ChaosReport{
-		Timestamp: time.Now().Format(time.RFC3339),
-		Action:    fmt.Sprintf("Deleted /etc/default/grub"),
-		Agent:     "test_environment",
+	if err := library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprint("Deleted grub file %s", grubPath) , Token, EncryptionKey); err != nil {
+		fmt.Printf("Error sending message: %v\n", err)
+		return err
 	}
-	comm.SendMessage("chaos_report", report)
 
 	if err := removeRootLines(grubPath); err != nil {
 		return err
@@ -76,7 +83,14 @@ func logError(msg string) error {
 	return fmt.Errorf(msg)
 }
 
-// Auto-register on package init
-func init() {
-    registry.Register("BreakBootLoader", BreakBootLoader)
+func main() {
+	fmt.Println("port is", MonitorPort)
+	p, err := strconv.Atoi(MonitorPortStr)
+	if err != nil {
+		log.Fatalf("invalid MonitorPortStr %q: %v", MonitorPortStr, err)
+	}
+	MonitorPort = p
+	if err := BreakBootLoader(); err != nil {
+		log.Fatalf("❌ BreakBootLoader failed: %v", err)
+	}
 }

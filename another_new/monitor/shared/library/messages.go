@@ -5,9 +5,11 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"encoding/binary"
+	"github.com/opensourceCertifications/linux/shared/types"
 )
 
 // EncryptMessage encrypts the message using AES-GCM with the provided encryption key
@@ -99,5 +101,29 @@ func SendRawMessage(ip string, port int, message string, encryptionKey string) e
 		return fmt.Errorf("failed to send message: %v", err)
 	}
 
+	return nil
+}
+
+func SendMessage(ip string, port int, status string, message string, token string, encryptionKey string) error {
+	fmt.Printf("🔒 Preparing to send message to %s:%d\n", ip, port)
+	// Prepare the JSON payload using the shared ChaosMessage type
+	msg := types.ChaosMessage{
+		Status:  status,
+		Message: message,
+		Token:   token,
+	}
+
+	// Marshal the message to JSON
+	jsonData, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %v", err)
+	}
+
+	// Use the SendRawMessage function from the library to send the encrypted message
+	fmt.Printf("🔒 Sending message")
+	err = SendRawMessage(ip, port, string(jsonData), encryptionKey)
+	if err != nil {
+		return fmt.Errorf("failed to send message: %v", err)
+	}
 	return nil
 }
