@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+	"errors"
 
 	"golang.org/x/crypto/ssh"
 
@@ -71,8 +72,6 @@ func main() {
         os.Exit(1)  // This will exit only on critical failure to start service
     }
 
-    fmt.Println("✅ Successfully ran 'touch /tmp/hello' on", targetIP)
-
     // The service should now keep running and processing incoming connections
 }
 
@@ -100,7 +99,6 @@ func pickRandomFile(dir string) (string, error) {
 func compileChaosBinary(sourcePath, monitorIP string, port int, token string, encryptionKey string) (string, error) {
 	outputPath := filepath.Join("/tmp", "break_tool")
 
-	fmt.Printf("📁 Source path: %s\n", sourcePath)
 	ldflags := fmt.Sprintf("-X=main.MonitorIP=%s -X=main.MonitorPortStr=%s -X=main.Token=%s -X=main.EncryptionKey=%s", monitorIP, strconv.Itoa(port), token, encryptionKey)
 
 	cmd := exec.Command("go", "build", "-o", outputPath, "-ldflags", ldflags, sourcePath)
@@ -108,13 +106,11 @@ func compileChaosBinary(sourcePath, monitorIP string, port int, token string, en
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Printf("🛠️ Compiling %s → %s...\n", sourcePath, outputPath)
 	err := cmd.Run()
 	if err != nil {
 		return "", fmt.Errorf("failed to compile chaos binary: %v", err)
 	}
 
-	fmt.Printf("✅ Compiled binary written to: %s\n", outputPath)
 	return outputPath, nil
 }
 
@@ -206,13 +202,11 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 			if opperation == "complete" {
 				fmt.Println("✅ Operation completed successfully, exiting listener.")
 				listener.Close()
-				break
-				//return nil // Exit the listener loop if operation is complete
+				return nil // Exit the listener loop if operation is complete
 			}
 		}
 
 		// This point is never reached due to the infinite loop above.
-		//return nil
 		defer listener.Close()
 	}
 }
@@ -250,8 +244,6 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 			return "error"
 		}
 
-		fmt.Printf("🔹 Raw input (encrypted %d bytes): %x\n", msgLen, encryptedData)
-
 		// Step 3: Decrypt the message
 		plaintext, err := DecryptMessage(encryptedData, encryptionKey)
 		if err != nil {
@@ -266,8 +258,6 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 			continue
 		}
 
-		fmt.Println("🔓 Decrypted JSON message:", string(plaintext))
-
 		// Step 5: Token check
 		if msg.Token == expectedToken {
 			fmt.Println("🔐 Token check: ✅ valid")
@@ -278,12 +268,10 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		}
 
 		// Step 6: Process message
-		fmt.Printf("📨 Status: %-20s  Message: %s\n", msg.Status, msg.Message)
+		if err := AppendChaosToReport(msg); err != nil {
+		    fmt.Fprintf(os.Stderr, "failed to append to report: %v\n", err)
+		}
 
-		//if msg.Status == "operation_complete" && msg.TokenCheck {
-		//	fmt.Println("✅ Operation completed, continuing to listen for new messages.")
-		//	return "complete"
-		//}
 		switch msg.Status {
 			case "operation_complete":
 				if msg.TokenCheck {
@@ -295,10 +283,24 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 
 			case "general":
 				// just print the message
-				fmt.Printf("📢 General: %s\n", msg.Message)
+				fmt.Printf("📢 General: %s", msg.Message)
+
+			case "chaos_report":
+				fmt.Printf("🐛 Chaos Report: %s", msg.Message)
+				logPath := "/tmp/chaos_reports.log"
+				f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "log open error: %v\n", err)
+					break
+				}
+				// write the full JSON we received (plus newline)
+				if _, err := f.Write(append(plaintext, '\n')); err != nil {
+					fmt.Fprintf(os.Stderr, "log write error: %v\n", err)
+				}
+				_ = f.Close()
 
 			default:
-				fmt.Printf("⚠️ Unknown message type: %s\n", msg.Status)
+				fmt.Printf("⚠️ Unknown message type: %s", msg.Status)
 		}
 	}
 }
@@ -312,8 +314,6 @@ func GenerateEncryptionKey(keyLength int) (string, error) {
 		return "", fmt.Errorf("failed to generate encryption key: %v", err)
 	}
 
-	fmt.Printf("🔑 Generated encryption key of length %d bytes\n", keyLength)
-	fmt.Printf("🔑 Key (hex): %s\n", hex.EncodeToString(key))
 	// Convert the key to a hex string for easy storage and transfer
 	return hex.EncodeToString(key), nil
 }
@@ -335,17 +335,22 @@ func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) 
     nonce, ciphertext := encryptedData[:12], encryptedData[12:]
     // Separate the last 16 bytes (authentication tag)
 
-    tagCopy := ciphertext[len(ciphertext)-16:]
-    ciphertextCopy := ciphertext[:len(ciphertext)-16] // Remove the tag from ciphertext
+////////////////////////////////////////////////////////////////////////////////
+//// keeping this code here and commented to make debugging easier as we go ////
+//// I'll probably remove it after we release version 1                     ////
+////////////////////////////////////////////////////////////////////////////////
+    //tagCopy := ciphertext[len(ciphertext)-16:]
+    //ciphertextCopy := ciphertext[:len(ciphertext)-16] // Remove the tag from ciphertext
 
     // Log the nonce and ciphertext for debugging
-    fmt.Printf("🔑 Nonce: %x\n", nonce)
-    fmt.Printf("🔒 Ciphertext: %x\n", ciphertextCopy)
-    fmt.Printf("🔑 encryptedData: %s\n", encryptedData[:12])
-    fmt.Printf("🔒 Tag: %x\n", tagCopy)
-    fmt.Printf("🔑 Nonce (%d bytes): %x\n", len(nonce), nonce)
-    fmt.Printf("🔒 Ciphertext (%d bytes): %x\n", len(ciphertextCopy), ciphertextCopy)
-    fmt.Printf("🔐 Tag (%d bytes): %x\n", len(tagCopy), tagCopy)
+    //fmt.Printf("🔑 Nonce: %x\n", nonce)
+    //fmt.Printf("🔒 Ciphertext: %x\n", ciphertextCopy)
+    //fmt.Printf("🔑 encryptedData: %s\n", encryptedData[:12])
+    //fmt.Printf("🔒 Tag: %x\n", tagCopy)
+    //fmt.Printf("🔑 Nonce (%d bytes): %x\n", len(nonce), nonce)
+    //fmt.Printf("🔒 Ciphertext (%d bytes): %x\n", len(ciphertextCopy), ciphertextCopy)
+    //fmt.Printf("🔐 Tag (%d bytes): %x\n", len(tagCopy), tagCopy)
+////////////////////////////////////////////////////////////////////////////////
 
     // Initialize AES-GCM cipher block
     block, err := aes.NewCipher(key)
@@ -370,3 +375,107 @@ func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) 
 }
 
 
+// AppendChaosToReport appends a ChaosMessage under its token key
+// into $HOME/report.log.json. The JSON file is a map[string][]ChaosMessage.
+func AppendChaosToReport(msg types.ChaosMessage) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home dir: %w", err)
+	}
+	path := filepath.Join(home, "report.log.json")
+
+	// Ensure file exists with an empty JSON object
+	if err := ensureJSONFile(path); err != nil {
+		return err
+	}
+
+	// Load existing map[token][]ChaosMessage
+	logs, err := readReport(path)
+	if err != nil {
+		return fmt.Errorf("read report: %w", err)
+	}
+
+	// Append the entry
+	logs[msg.Token] = append(logs[msg.Token], msg)
+
+	// Write back atomically
+	if err := writeJSONAtomic(path, logs); err != nil {
+		return fmt.Errorf("write report: %w", err)
+	}
+
+	return nil
+}
+
+// AppendChaosLine parses a single JSON line and appends it using AppendChaosToReport.
+func AppendChaosLine(line []byte) error {
+	var msg types.ChaosMessage
+	if err := json.Unmarshal(line, &msg); err != nil {
+		return fmt.Errorf("parse chaos line: %w", err)
+	}
+	if msg.Token == "" {
+		return errors.New("missing token in chaos line")
+	}
+	return AppendChaosToReport(msg)
+}
+
+// --- helpers ---
+
+func ensureJSONFile(path string) error {
+	_, statErr := os.Stat(path)
+	if os.IsNotExist(statErr) {
+		// Make sure parent dir exists (usually HOME, but safe)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("mkdir parents: %w", err)
+		}
+		// Initialize as {}
+		if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+			return fmt.Errorf("init report file: %w", err)
+		}
+		return nil
+	}
+	return statErr
+}
+
+func readReport(path string) (map[string][]types.ChaosMessage, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// Treat empty as {}
+	if len(bytesTrimSpace(data)) == 0 {
+		return map[string][]types.ChaosMessage{}, nil
+	}
+	var logs map[string][]types.ChaosMessage
+	if err := json.Unmarshal(data, &logs); err != nil {
+		// If the file is corrupt, back it up and start fresh
+		_ = os.WriteFile(path+".corrupt.bak", data, 0o644)
+		logs = map[string][]types.ChaosMessage{}
+	}
+	return logs, nil
+}
+
+func writeJSONAtomic(path string, v any) error {
+	tmp := path + ".tmp"
+	out, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	// Write temp file first
+	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+		return err
+	}
+	// Atomic replace
+	return os.Rename(tmp, path)
+}
+
+// bytesTrimSpace avoids importing strings just to trim
+func bytesTrimSpace(b []byte) []byte {
+	start, end := 0, len(b)
+	for start < end && (b[start] == ' ' || b[start] == '\n' || b[start] == '\r' || b[start] == '\t') {
+		start++
+	}
+	for end > start && (b[end-1] == ' ' || b[end-1] == '\n' || b[end-1] == '\r' || b[end-1] == '\t') {
+		end--
+	}
+	return b[start:end]
+}
