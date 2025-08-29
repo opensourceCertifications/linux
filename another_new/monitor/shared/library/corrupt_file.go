@@ -65,7 +65,6 @@ func CorruptFile(path string, percent int) (string, error) {
 	}
 
 	msg := fmt.Sprintf("File %s corrupted (flip+offset, %d%% of bytes)", path, percent)
-	//_ = library.SendMessage(MonitorIP, MonitorPort, "chaos_report", msg, Token, EncryptionKey)
 	return msg, nil
 }
 
