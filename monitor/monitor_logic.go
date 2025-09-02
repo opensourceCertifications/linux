@@ -57,8 +57,8 @@ func main() {
         HostKeyCallback: ssh.InsecureIgnoreHostKey(), // ⚠️ ok for testing only
     }
 
-    // Run remote command (this will pick a test file from "breaks/breaks")
-    scriptPath, err := pickRandomFile("breaks/breaks")
+    // Run remote command (this will pick a test file from "breaks")
+    scriptPath, err := pickRandomFile("breaks")
     if err != nil {
         fmt.Fprintf(os.Stderr, "Failed to pick test file: %v\n", err)
         os.Exit(1)
@@ -378,6 +378,8 @@ func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) 
 // AppendChaosToReport appends a ChaosMessage under its token key
 // into $HOME/report.log.json. The JSON file is a map[string][]ChaosMessage.
 func AppendChaosToReport(msg types.ChaosMessage) error {
+	// the file size could grow large over time, but for simplicity
+	// we keep it simple and read the whole file each time.
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("resolve home dir: %w", err)
@@ -417,8 +419,6 @@ func AppendChaosLine(line []byte) error {
 	}
 	return AppendChaosToReport(msg)
 }
-
-// --- helpers ---
 
 func ensureJSONFile(path string) error {
 	_, statErr := os.Stat(path)

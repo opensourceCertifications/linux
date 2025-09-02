@@ -1,44 +1,148 @@
-# linux certification
-There's a problem with IT certificates, they're often very expensive and test the wrong thing. Take AWS for example, it's hard sure but it's all multiple choice, someone with perfect knowledge of the documentation and zero technical skills can, in theory, get any certification. The CKA is all practical sure but it's all browser based and limits you so much that it's really hard by restriction rather than actually testing the engineers ability. I aim to build a set of certifications that test what engineers do day to day.
+Absolutely 👍 Here’s the full **README.md** regenerated in clean Markdown format for you to drop directly into your repo:
 
-* the certifications will be free to do locally thus lowering the barrier for entry
-* they will be open source because tools generally are
-* the user can bring any toy they want.
+```markdown
+# Linux Certification Project
 
-Currently I'm working on the Linux one, it has the following setup:
-* 2 VMs a monitor and a testenv
-the user will have access to the testenv but not the monitor. The monitor will have ssh access to the testenv and will login periodically to cause chaos.
-* the user will get a list of stuff to do but will also be marked on if they manage to fix the chaos caused by the monitor.
+This repository is part of a **work-in-progress Linux certification project**.  
+It uses [Vagrant](https://www.vagrantup.com/) to provision a small environment with two virtual machines and introduces Go-based tooling to explore system behavior.  
 
-curl -X POST http://192.168.56.1:$1 \
-  -H "Content-Type: application/json" \
-  -d '{"status": "operation_complete", "message": "done", "token": "$2"}'
+⚠️ **Note:** This project is still under active construction and is **not yet ready for use**.
 
+---
 
+## 📂 Project Structure
 
-# linux
-run this command before running ansible-playbook --check
-if you just wanna run the playbook to get started then you can skip this step
-the ansible should install the required collections for you
-```bash
-ansible-galaxy collection install -r requirements.yml
 ```
 
+Vagrantfile
+README.md
+monitor/
+├── breaks
+│   └── broken\_boot\_loader.go
+├── go.mod
+├── go.sum
+├── imports.json
+├── monitor\_logic.go
+└── shared
+├── go.mod
+├── library
+│   ├── corrupt\_file.go
+│   └── messages.go
+└── types
+└── shared\_types.go
 
-currently I'm seeing this
-[vagrant@testenv testenv]$ go run test_chaos.go BreakBootLoader 192.168.56.10
-2025/06/27 19:27:58 Running chaos function: BreakBootLoader
-2025/06/27 19:27:58 No grub.cfg found!
-2025/06/27 19:27:58 Function 'BreakBootLoader' returned error: No grub.cfg found!
-exit status 1
-[vagrant@testenv testenv]$ bash run_testenv.sh
-2025/06/27 19:28:41 Waiting for monitor service to become available...
-2025/06/27 19:28:41 Connected to monitor. Starting heartbeat...
-2025/06/27 19:28:41 Chaos injector sleeping for 42.27327564s before next break...
-2025/06/27 19:29:23 Failed to select a random break: no chaos functions registered
-2025/06/27 19:29:23 Chaos injector sleeping for 48.140353757s before next break...
-^Csignal: interrupt
-[vagrant@testenv testenv]$
+````
 
+---
 
-I'm guessing there's something wrong in my chaos script and how it handles the grub.cfg file
+## 🖥️ Virtual Machines
+
+### **monitor**
+- Provisions Go (`/usr/local/go`).
+- Hosts and runs Go source files in the `monitor/` directory.
+- Manages compilation and execution of break modules.
+- Handles encrypted message passing and logging.
+
+### **testenv**
+- Minimal Linux environment.
+- Currently only runs updates and upgrades.
+- Serves as the target system for testing break modules.
+
+---
+
+## ⚙️ Go Components
+
+### **monitor/monitor_logic.go**
+- Opens a TCP listener on a random port.
+- Generates a **token** and an **encryption key**.
+- Randomly selects a break module from `breaks/`, compiles it, and deploys it to `testenv`.
+- Transfers the binary to `/tmp` on `testenv` and executes it as root.
+- Processes encrypted log messages:
+  - Validates messages with token + encryption key.
+  - Logs accepted messages (e.g., `chaos_report` → JSON log).
+  - Closes the port on `"operation_complete"`.
+- Intended to loop every **7–10 minutes**.
+
+---
+
+### **monitor/breaks/broken_boot_loader.go**
+- Simulates a **boot failure** by corrupting a critical boot file.
+
+---
+
+### **monitor/shared/library/corrupt_file.go**
+- Corrupts files at the byte level:
+  - Input: file path + corruption percentage.
+  - Randomly selects that % of bytes.
+  - Flips bits (`0 ↔ 1`) and adds a random number for additional corruption.
+
+---
+
+### **monitor/shared/library/messages.go**
+- Builds and encrypts messages:
+  - Input: IP, port, token, type, payload, key.
+  - Encrypts the message and sends it to the target.
+
+---
+
+### **monitor/shared/types/shared_types.go**
+- Defines shared objects between modules.
+- Currently includes only the `Message` struct.
+
+---
+
+## 🚀 Getting Started
+
+### Requirements
+- [Vagrant](https://developer.hashicorp.com/vagrant/downloads)
+- [VirtualBox](https://www.virtualbox.org/) (or another provider)
+
+### Setup
+```bash
+git clone https://github.com/<your-username>/<your-repo>.git
+cd <your-repo>
+vagrant up
+````
+
+### Usage
+
+SSH into the **monitor** VM and run the Go logic:
+
+```bash
+vagrant ssh monitor
+cd /vagrant/monitor
+go run monitor_logic.go
+```
+
+SSH into the **testenv** VM fix the broken stuff:
+
+```bash
+vagrant ssh testenv
+```
+---
+
+## ⚠️ Disclaimer
+
+This project is **not production ready** and is part of a **Linux certification build**.
+It may deliberately corrupt files or simulate destructive operations.
+Run only inside the provided Vagrant environment.
+
+---
+
+## 📌 Roadmap
+
+* Expand break modules (e.g., file system, networking, memory stress).
+* Add tasks for the user to do in the `testenv` VM.
+* Improve logging and reporting.
+* Documentation for certification steps.
+
+---
+
+## 📝 License
+
+This project is released under the MIT License. See [LICENSE](LICENSE) for details.
+
+```
+
+Do you also want me to add a **Mermaid diagram** in the README showing how `monitor` communicates with `testenv` and runs the breaks? That would make the architecture pop nicely on GitHub.
+```
