@@ -50,10 +50,13 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("found vmlinuz files: %v", vmlinuzFiles), Token, EncryptionKey)
-	file, err := library.CorruptFile(vmlinuzFiles[rand.Intn(len(vmlinuzFiles))], 100)
+	file := vmlinuzFiles[rand.Intn(len(vmlinuzFiles))]
+	corrupted_file, err := library.CorruptFile(file, 100)
 	if err != nil {
 		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupting kernel failed: %v", err), Token, EncryptionKey)
 		log.Fatalf("❌ error: %v", err)
+	} else {
+		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupted kernel file %s", corrupted_file), Token, EncryptionKey)
+		library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("corruptedFile,%s", file), Token, EncryptionKey)
 	}
-	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupted kernel file %s", file), Token, EncryptionKey)
 }

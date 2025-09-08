@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"time"
 	"errors"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 
@@ -296,6 +297,23 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 				// write the full JSON we received (plus newline)
 				if _, err := f.Write(append(plaintext, '\n')); err != nil {
 					fmt.Fprintf(os.Stderr, "log write error: %v\n", err)
+				}
+				_ = f.Close()
+
+			case "variable":
+				parts := strings.SplitN(msg.Message, ",", 2)
+				if len(parts) != 2 {
+					fmt.Printf("⚠️ Invalid variable message format: %s", msg.Message)
+					break
+				}
+				yamlLine := fmt.Sprintf("%s: \"%s\"\n", parts[0], parts[1])
+				filePath := os.ExpandEnv("$HOME/ansible_vars.yml")
+				f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "variable file open error: %v\n", err)
+				}
+				if _, err := f.WriteString(yamlLine); err != nil {
+					fmt.Fprintf(os.Stderr, "variable file write error: %v\n", err)
 				}
 				_ = f.Close()
 
