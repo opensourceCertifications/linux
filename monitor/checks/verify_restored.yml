@@ -1,0 +1,44 @@
+# checks/verify_restored.yml
+---
+# This is a TASK FILE (meant for include_tasks), not a full playbook.
+
+- name: Ensure corruptedFile variable is available and a list
+  ansible.builtin.assert:
+    that:
+      - corruptedFile is defined
+      - corruptedFile is iterable
+    fail_msg: >
+      'corruptedFile' must be defined and contain a list of file paths to verify.
+
+# You may need privilege to read /boot files; enable become here if required:
+- name: Stat each corrupted file path
+  become: yes
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: yes
+  loop: "{{ corruptedFile }}"
+  register: corrupted_stats
+
+- name: Build list of missing files
+  ansible.builtin.set_fact:
+    missing_corrupted_files: >-
+      {{ corrupted_stats.results
+         | rejectattr('stat.exists')
+         | map(attribute='item')
+         | list }}
+
+- name: Show verification summary
+  ansible.builtin.debug:
+    msg:
+      found: >-
+        {{ corrupted_stats.results
+           | selectattr('stat.exists')
+           | map(attribute='item')
+           | list }}
+      missing: "{{ missing_corrupted_files }}"
+
+- name: Fail if any files are still missing (not restored)
+  ansible.builtin.fail:
+    msg: >-
+      The following files are still missing (not restored): {{ missing_corrupted_files | join(', ') }}
+  when: missing_corrupted_files | length > 0

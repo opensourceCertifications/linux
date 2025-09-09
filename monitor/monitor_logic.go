@@ -20,6 +20,7 @@ import (
 	"time"
 	"errors"
 	"strings"
+	"gopkg.in/yaml.v2"
 
 	"golang.org/x/crypto/ssh"
 
@@ -300,22 +301,54 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 				}
 				_ = f.Close()
 
-			case "variable":
-				parts := strings.SplitN(msg.Message, ",", 2)
-				if len(parts) != 2 {
-					fmt.Printf("⚠️ Invalid variable message format: %s", msg.Message)
-					break
-				}
-				yamlLine := fmt.Sprintf("%s: \"%s\"\n", parts[0], parts[1])
-				filePath := os.ExpandEnv("$HOME/ansible_vars.yml")
-				f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "variable file open error: %v\n", err)
-				}
-				if _, err := f.WriteString(yamlLine); err != nil {
-					fmt.Fprintf(os.Stderr, "variable file write error: %v\n", err)
-				}
-				_ = f.Close()
+				case "variable":
+					parts := strings.SplitN(msg.Message, ",", 2)
+					if len(parts) != 2 {
+						fmt.Printf("⚠️ Invalid variable message format: %s\n", msg.Message)
+						break
+					}
+
+					key := parts[0]
+					value := parts[1]
+					filePath := os.ExpandEnv("/vagrant/monitor/ansible_vars.yml")
+
+					// Step 1: Load existing YAML if present
+					vars := make(map[string][]string)
+					if data, err := os.ReadFile(filePath); err == nil {
+						if len(data) > 0 {
+							if err := yaml.Unmarshal(data, &vars); err != nil {
+								fmt.Fprintf(os.Stderr, "YAML unmarshal error: %v\n", err)
+								break
+							}
+						}
+					}
+
+					// Step 2: Append value (avoid duplicates if you like)
+					list := vars[key]
+					// Optional: deduplicate
+					alreadyExists := false
+					for _, v := range list {
+						if v == value {
+							alreadyExists = true
+							break
+						}
+					}
+					if !alreadyExists {
+						vars[key] = append(list, value)
+					}
+
+					// Step 3: Write back full YAML
+					out, err := yaml.Marshal(vars)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "YAML marshal error: %v\n", err)
+						break
+					}
+
+					if err := os.WriteFile(filePath, out, 0644); err != nil {
+						fmt.Fprintf(os.Stderr, "variable file write error: %v\n", err)
+					} else {
+						fmt.Printf("✅ Updated %s with %s -> %s\n", filePath, key, value)
+					}
 
 			default:
 				fmt.Printf("⚠️ Unknown message type: %s", msg.Status)
