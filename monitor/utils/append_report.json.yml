@@ -1,0 +1,34 @@
+---
+# Inputs:
+#   report_path (remote path)
+#   entries      (list of dicts)
+
+- name: Check if report exists
+  ansible.builtin.stat:
+    path: "{{ report_path }}"
+  register: rp
+
+- name: Load existing report when present
+  ansible.builtin.slurp:
+    path: "{{ report_path }}"
+  register: sl
+  when: rp.stat.exists | bool
+
+- name: Parse existing or init empty
+  ansible.builtin.set_fact:
+    current_report: >-
+      {{ (sl.content | b64decode | from_json)
+         if (rp.stat.exists | bool and (sl is defined))
+         else {'corrupted_files': []} }}
+
+- name: Merge new entries
+  ansible.builtin.set_fact:
+    merged_report: "{{ current_report
+                       | combine({'corrupted_files': (current_report.corrupted_files | default([])) + entries},
+                                 recursive=True) }}"
+
+- name: Write merged report
+  ansible.builtin.copy:
+    dest: "{{ report_path }}"
+    content: "{{ merged_report | to_nice_json }}"
+    mode: "0644"

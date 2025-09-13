@@ -9,6 +9,7 @@ tfplan
 .terraform.lock.hcl
 
 .terraform/
+.ansible /
 
 .vagrant/
 

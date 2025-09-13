@@ -1,44 +1,56 @@
-# checks/verify_restored.yml
 ---
-# This is a TASK FILE (meant for include_tasks), not a full playbook.
+# Task file, runs on testenv. Does NOT fail; appends a JSON report.
 
-- name: Ensure corruptedFile variable is available and a list
-  ansible.builtin.assert:
-    that:
-      - corruptedFile is defined
-      - corruptedFile is iterable
-    fail_msg: >
-      'corruptedFile' must be defined and contain a list of file paths to verify.
-
-# You may need privilege to read /boot files; enable become here if required:
-- name: Stat each corrupted file path
+- name: Verify each file with rpm -Vf
   become: yes
-  ansible.builtin.stat:
-    path: "{{ item }}"
-    follow: yes
+  ansible.builtin.command: "rpm -Vf {{ f }}"
   loop: "{{ corruptedFile }}"
-  register: corrupted_stats
+  loop_control:
+    loop_var: f
+    label: "{{ f }}"
+  register: verify_results
+  changed_when: false
+  failed_when: false
 
-- name: Build list of missing files
+# Timestamp without gather_facts (avoid self-reference)
+- name: Capture timestamp
   ansible.builtin.set_fact:
-    missing_corrupted_files: >-
-      {{ corrupted_stats.results
-         | rejectattr('stat.exists')
-         | map(attribute='item')
-         | list }}
+    now_ts: "{{ lookup('pipe','date -u +%Y-%m-%dT%H:%M:%SZ') }}"
 
-- name: Show verification summary
+# Build list of corrupted files (rc != 0)
+- name: Collect corrupted files
+  ansible.builtin.set_fact:
+    corrupted_files: "{{ verify_results.results | selectattr('rc','ne',0) | list }}"
+
+# Initialize entries list
+- name: Init report entries
+  ansible.builtin.set_fact:
+    report_entries: []
+
+# Build entries one-by-one (avoid complex Jinja)
+- name: Build report entry objects
+  ansible.builtin.set_fact:
+    report_entries: "{{ report_entries + [ {
+        'path': item.f | default(item.item, true),
+        'status': 'corrupted',
+        'detail': item.stdout | default(''),
+        'ts': now_ts
+      } ] }}"
+  loop: "{{ corrupted_files }}"
+  loop_control:
+    label: "{{ (item.f | default(item.item, true)) | default('unknown') }}"
+
+# Append to ~/report.json if anything to record
+- name: Append entries to report.json
+  ansible.builtin.include_tasks: "../utils/append_report.json.yml"
+  when: report_entries | length > 0
+  vars:
+    report_path: "{{ ansible_env.HOME }}/report.json"
+    entries: "{{ report_entries }}"
+
+# Optional: summary
+- name: Summary
   ansible.builtin.debug:
     msg:
-      found: >-
-        {{ corrupted_stats.results
-           | selectattr('stat.exists')
-           | map(attribute='item')
-           | list }}
-      missing: "{{ missing_corrupted_files }}"
-
-- name: Fail if any files are still missing (not restored)
-  ansible.builtin.fail:
-    msg: >-
-      The following files are still missing (not restored): {{ missing_corrupted_files | join(', ') }}
-  when: missing_corrupted_files | length > 0
+      ok_files: "{{ verify_results.results | selectattr('rc','eq',0) | map(attribute='f') | list }}"
+      corrupted_files: "{{ report_entries | map(attribute='path') | list }}"

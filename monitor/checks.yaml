@@ -1,9 +1,9 @@
 ---
 - name: Add host and vars
   hosts: localhost
-  gather_facts: no
+  gather_facts: true
   vars_files:
-    - vars.yaml
+    - "{{ playbook_dir }}/ansible_vars.yml"
   tasks:
     - name: Ensure TESTENV_ADDRESS is set
       ansible.builtin.assert:
@@ -19,7 +19,9 @@
 
 - name: Run all check task files
   hosts: testenv
-  gather_facts: no
+  gather_facts: true
+  vars_files:
+    - "{{ playbook_dir }}/ansible_vars.yml"
   tasks:
     - name: Include all task files in checks/
       ansible.builtin.include_tasks: "{{ item }}"
