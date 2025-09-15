@@ -1,5 +1,3 @@
-Absolutely 👍 Here’s the full **README.md** regenerated in clean Markdown format for you to drop directly into your repo:
-
 ```markdown
 # Linux Certification Project
 

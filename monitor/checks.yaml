@@ -1,7 +1,8 @@
 ---
+# Play 1: create dynamic host group on the monitor
 - name: Add host and vars
   hosts: localhost
-  gather_facts: true
+  gather_facts: false
   vars_files:
     - "{{ playbook_dir }}/ansible_vars.yml"
   tasks:
@@ -9,21 +10,65 @@
       ansible.builtin.assert:
         that: lookup('env','TESTENV_ADDRESS') | length > 0
 
-    - name: Add TESTENV_ADDRESS to 'testenv' and pass payload
+    - name: Add TESTENV_ADDRESS to 'testenv'
       ansible.builtin.add_host:
         name: "{{ lookup('env','TESTENV_ADDRESS') }}"
         groups: testenv
-        my_payload:
-          user: "{{ lookup('env','SSH_USER') | default('ubuntu', true) }}"
-          note: "from runner"
 
-- name: Run all check task files
+# Play 2: run all checks on testenv, collect results on the monitor
+- name: Run checks on testenv and collect results
   hosts: testenv
-  gather_facts: true
+  gather_facts: false
+  vars:
+    remote_artifact_root: "/tmp/ansible-checks"
+    local_artifact_root: "{{ playbook_dir }}/artifacts/{{ inventory_hostname }}"
+    local_report_path:   "{{ playbook_dir }}/report.json"
   vars_files:
     - "{{ playbook_dir }}/ansible_vars.yml"
   tasks:
-    - name: Include all task files in checks/
-      ansible.builtin.include_tasks: "{{ item }}"
-      loop: "{{ lookup('fileglob', 'checks/*.yml', wantlist=True) }}"
+    - name: Ensure local artifact dir exists (on monitor)
+      ansible.builtin.file:
+        path: "{{ local_artifact_root }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Initialize report accumulator (on monitor)
+      ansible.builtin.set_fact:
+        report_items: []
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+
+    - name: Discover check task files
+      ansible.builtin.set_fact:
+        check_files: "{{ lookup('fileglob', playbook_dir + '/checks/*.yml', wantlist=True) }}"
+
+    # ✅ Loop over a *task file*, not a block
+    - name: Run each check and collect results
+      ansible.builtin.include_tasks: run_one_check.yml
+      loop: "{{ check_files }}"
+      loop_control:
+        loop_var: cf
+
+    - name: Write consolidated report (on monitor)
+      ansible.builtin.copy:
+        dest: "{{ local_report_path }}"
+        content: "{{ {
+                     'host': inventory_hostname,
+                     'generated_at': lookup('pipe','date -u +%Y-%m-%dT%H:%M:%SZ'),
+                     'items': (report_items | default([]))
+                   } | to_nice_json }}"
+        mode: "0644"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Show report & artifacts
+      ansible.builtin.debug:
+        msg:
+          report: "{{ local_report_path }}"
+          artifacts_dir: "{{ local_artifact_root }}"
+      delegate_to: localhost
+      run_once: true
 
