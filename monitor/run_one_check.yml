@@ -1,4 +1,8 @@
 ---
+- name: Debug which check is running
+  ansible.builtin.debug:
+    msg: "Running check file: {{ cf }}"
+
 - name: Derive check_id and dirs
   ansible.builtin.set_fact:
     check_id: "{{ cf | basename | regex_replace('\\.yml$', '') }}"

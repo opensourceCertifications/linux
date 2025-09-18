@@ -1,4 +1,10 @@
 ---
+- name: Ensure results dir exists
+  ansible.builtin.file:
+    path: "{{ _rad }}"
+    state: directory
+    mode: "0755"
+
 - name: Verify files with rpm -Vf
   become: yes
   ansible.builtin.command: "rpm -Vf {{ f }}"
@@ -9,15 +15,23 @@
   changed_when: false
   failed_when: false
 
+# NEW: make sure {{ _rad }} exists before we write into it
+- name: Ensure results dir exists
+  ansible.builtin.file:
+    path: "{{ _rad }}"
+    state: directory
+    mode: "0755"
+
+# REPLACE your old "Save raw output" with this one
 - name: Save raw output
   ansible.builtin.copy:
     dest: "{{ _rad }}/rpm_verify.txt"
     content: |
-      {% for r in verify.results %}
+      {% for r in (verify.results | default([])) %}
       PATH: {{ r.f | default(r.item, true) }}
-      RC:   {{ r.rc }}
-      OUT:  {{ (r.stdout | trim) | default('') }}
-      ERR:  {{ (r.stderr | trim) | default('') }}
+      RC:   {{ r.rc | default('') }}
+      OUT:  {{ (r.stdout | default('') | trim) }}
+      ERR:  {{ (r.stderr | default('') | trim) }}
       ---
       {% endfor %}
     mode: "0644"
@@ -31,3 +45,7 @@
       data:
         failed_paths: "{{ verify.results | selectattr('rc','ne',0) | map(attribute='f') | list }}"
         checked_paths: "{{ verify.results | map(attribute='f') | list }}"
+
+- name: Debug check_result
+  ansible.builtin.debug:
+    var: check_result

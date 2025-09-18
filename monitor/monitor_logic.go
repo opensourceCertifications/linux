@@ -52,7 +52,7 @@ func main() {
 
 	// SSH config (for remote interaction)
 	config := &ssh.ClientConfig{
-		User: "vagrant",
+		User: "root",
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
@@ -125,7 +125,7 @@ func scpToRemote(ip, localPath, remotePath string) error {
 		"-i", keyPath,
 		"-o", "StrictHostKeyChecking=no",
 		localPath,
-		fmt.Sprintf("vagrant@%s:%s", ip, remotePath),
+		fmt.Sprintf("root@%s:%s", ip, remotePath),
 	)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

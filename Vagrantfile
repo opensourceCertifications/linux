@@ -33,6 +33,8 @@ Vagrant.configure("2") do |config|
       # Wait for monitor.pub to appear
       sudo dnf update -y
       sudo dnf upgrade -y
+    SHELL
+    testenv.vm.provision "shell", privileged: true, inline: <<-SHELL
       while true; do
         if [ "$(wc -l < #{host_mount}/monitor.pub)" -gt 0 ]; then
           cat #{host_mount}/monitor.pub >> $HOME/.ssh/authorized_keys
