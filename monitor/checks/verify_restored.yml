@@ -1,10 +1,5 @@
 ---
-- name: Ensure results dir exists
-  ansible.builtin.file:
-    path: "{{ _rad }}"
-    state: directory
-    mode: "0755"
-
+# 1) Verify each file path from corruptedFile
 - name: Verify files with rpm -Vf
   become: yes
   ansible.builtin.command: "rpm -Vf {{ f }}"
@@ -14,38 +9,48 @@
   register: verify
   changed_when: false
   failed_when: false
+  when: (corruptedFile | default([])) | length > 0
 
-# NEW: make sure {{ _rad }} exists before we write into it
-- name: Ensure results dir exists
-  ansible.builtin.file:
-    path: "{{ _rad }}"
-    state: directory
-    mode: "0755"
-
-# REPLACE your old "Save raw output" with this one
-- name: Save raw output
-  ansible.builtin.copy:
-    dest: "{{ _rad }}/rpm_verify.txt"
-    content: |
-      {% for r in (verify.results | default([])) %}
-      PATH: {{ r.f | default(r.item, true) }}
-      RC:   {{ r.rc | default('') }}
-      OUT:  {{ (r.stdout | default('') | trim) }}
-      ERR:  {{ (r.stderr | default('') | trim) }}
-      ---
-      {% endfor %}
-    mode: "0644"
-
-- name: Set check_result
+# 2) Init buckets
+- name: Init result buckets
   ansible.builtin.set_fact:
-    check_result:
-      id: "{{ _cid }}"
-      status: "{{ 'fail' if (verify.results | selectattr('rc','ne',0) | list | length) > 0 else 'pass' }}"
-      summary: "{{ (verify.results | selectattr('rc','ne',0) | list | length) }} file(s) failed rpm verification"
-      data:
-        failed_paths: "{{ verify.results | selectattr('rc','ne',0) | map(attribute='f') | list }}"
-        checked_paths: "{{ verify.results | map(attribute='f') | list }}"
+    restored_files: []
+    corrupted_files: []
+  when: verify is defined
 
-- name: Debug check_result
-  ansible.builtin.debug:
-    var: check_result
+# 3) Bucket OK results (rc == 0)
+- name: Bucket OK results
+  ansible.builtin.set_fact:
+    restored_files: "{{ restored_files + [ (res[res.ansible_loop_var] | default(res.item, true)) ] }}"
+  loop: "{{ verify.results | default([]) }}"
+  loop_control:
+    loop_var: res
+  when:
+    - verify is defined
+    - (res.rc | default(1)) == 0
+
+# 4) Bucket FAILED results (rc != 0)
+- name: Bucket FAILED results
+  ansible.builtin.set_fact:
+    corrupted_files: "{{ corrupted_files + [ (res[res.ansible_loop_var] | default(res.item, true)) ] }}"
+  loop: "{{ verify.results | default([]) }}"
+  loop_control:
+    loop_var: res
+  when:
+    - verify is defined
+    - (res.rc | default(0)) != 0
+
+# 5) Append to /tmp/results.yml via helper (creates keys if missing, preserves others)
+- name: Append OK paths to results.yml
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: "restored_files"
+    new_items: "{{ restored_files | default([]) }}"
+  when: restored_files is defined and (restored_files | length) > 0
+
+- name: Append FAILED paths to results.yml
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: "corrupted_files"
+    new_items: "{{ corrupted_files | default([]) }}"
+  when: corrupted_files is defined and (corrupted_files | length) > 0
