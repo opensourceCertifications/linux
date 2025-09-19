@@ -1,56 +1,112 @@
 ---
-# 1) Verify each file path from corruptedFile
-- name: Verify files with rpm -Vf
-  become: yes
-  ansible.builtin.command: "rpm -Vf {{ f }}"
-  loop: "{{ corruptedFile | default([]) }}"
-  loop_control:
-    loop_var: f
-  register: verify
+- name: Installing required packages
+  ansible.builtin.package:
+    name:
+      - file
+      - zstd
+      - xz
+      - gzip
+    state: present
+
+# Build the target list from your vars (support singular/plural keys)
+- name: Gather boot targets from vars
+  ansible.builtin.set_fact:
+    boot_targets: >-
+      {{
+        (corruptedBootFiles | default([]))
+        + (corruptedBootFile | default([]))
+        + (corruptedFile | default([]))
+      }}
+
+- name: Show targets (debug)
+  ansible.builtin.debug:
+    var: boot_targets
+
+# KISS checker per file (format-sanity only; OK if safe-to-use-at-boot)
+- name: Check each target for corruption
+  ansible.builtin.shell: |
+    f="{{ p }}"
+    # missing => corrupted
+    [[ -e "$f" ]] || exit 1
+
+    case "$f" in
+      /boot/vmlinuz-*)
+        # looks like a Linux kernel image
+        file -b -- "$f" | grep -qi 'linux kernel' && exit 0 || exit 1
+        ;;
+
+      /boot/initramfs-*.img)
+        # compression envelope intact; uncompressed images must start with newc magic
+        t="$(file -b -- "$f")"
+        if   [[ "$t" == *Zstandard* ]]; then zstd -t -- "$f"
+        elif [[ "$t" == *XZ*       ]]; then xz   -t -- "$f"
+        elif [[ "$t" == *gzip*     ]]; then gzip -t -- "$f"
+        else head -c 6 -- "$f" | grep -q '^070701$'
+        fi
+        ;;
+
+      /boot/grub2/grub.cfg)
+        # readable + has BLS handoff or at least one menuentry
+        [[ -r "$f" ]] && grep -qE '(^menuentry|[[:space:]]blscfg([[:space:]]|$))' -- "$f"
+        ;;
+
+      /boot/loader/entries/*.conf)
+        # BLS entry must have title, linux, and initrd lines
+        grep -qE '^[[:space:]]*title[[:space:]]+'  -- "$f" \
+        && grep -qE '^[[:space:]]*linux[[:space:]]+'  -- "$f" \
+        && grep -qE '^[[:space:]]*initrd[[:space:]]+' -- "$f"
+        ;;
+
+      /boot/grub2/grubenv)
+        # prefer grub2-editenv; fallback to header check
+        if command -v grub2-editenv >/dev/null 2>&1; then
+          grub2-editenv "$f" list >/dev/null 2>&1
+        else
+          head -n1 -- "$f" | grep -q 'GRUB Environment Block'
+        fi
+        ;;
+
+      *)
+        # if it slipped through, treat as corrupted
+        false
+        ;;
+    esac
+  args:
+    executable: /bin/bash
+  register: chk
   changed_when: false
   failed_when: false
-  when: (corruptedFile | default([])) | length > 0
-
-# 2) Init buckets
-- name: Init result buckets
-  ansible.builtin.set_fact:
-    restored_files: []
-    corrupted_files: []
-  when: verify is defined
-
-# 3) Bucket OK results (rc == 0)
-- name: Bucket OK results
-  ansible.builtin.set_fact:
-    restored_files: "{{ restored_files + [ (res[res.ansible_loop_var] | default(res.item, true)) ] }}"
-  loop: "{{ verify.results | default([]) }}"
+  loop: "{{ boot_targets }}"
   loop_control:
-    loop_var: res
-  when:
-    - verify is defined
-    - (res.rc | default(1)) == 0
+    loop_var: p
+    label: "{{ p }}"
 
-# 4) Bucket FAILED results (rc != 0)
-- name: Bucket FAILED results
+# Bucket results
+- name: Compute restored_files / corrupted_files
   ansible.builtin.set_fact:
-    corrupted_files: "{{ corrupted_files + [ (res[res.ansible_loop_var] | default(res.item, true)) ] }}"
-  loop: "{{ verify.results | default([]) }}"
-  loop_control:
-    loop_var: res
-  when:
-    - verify is defined
-    - (res.rc | default(0)) != 0
+    restored_files: >-
+      {{ (chk.results | default([]))
+         | selectattr('rc','eq',0)
+         | map(attribute='p')
+         | list }}
+    corrupted_files: >-
+      {{ (chk.results | default([]))
+         | selectattr('rc','ne',0)
+         | map(attribute='p')
+         | list }}
 
-# 5) Append to /tmp/results.yml via helper (creates keys if missing, preserves others)
-- name: Append OK paths to results.yml
+# Append to /tmp/results.yml via your helper
+- name: Append restored files
   ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
   vars:
     result_key: "restored_files"
     new_items: "{{ restored_files | default([]) }}"
-  when: restored_files is defined and (restored_files | length) > 0
+  when: restored_files | length > 0
 
-- name: Append FAILED paths to results.yml
+- name: Append corrupted files
   ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
   vars:
     result_key: "corrupted_files"
     new_items: "{{ corrupted_files | default([]) }}"
-  when: corrupted_files is defined and (corrupted_files | length) > 0
+  when: corrupted_files | length > 0
+

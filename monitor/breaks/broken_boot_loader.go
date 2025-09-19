@@ -1,15 +1,14 @@
 package main
 
 import (
-	"io/ioutil"
 	"log"
 	"os"
-	"strings"
 	"fmt"
 	"strconv"
 	"math/rand"
 	"time"
 	"github.com/opensourceCertifications/linux/shared/library"
+	"path/filepath"
 )
 
 
@@ -35,17 +34,34 @@ func init() {
 
 func main() {
 	fmt.Println("port is", MonitorPort)
-	entries, err := ioutil.ReadDir("/boot")
-	if err != nil {
-		log.Fatalf("failed to read /boot: %v", err)
+	//entries, err := ioutil.ReadDir("/boot")
+	//if err != nil {
+	//	log.Fatalf("failed to read /boot: %v", err)
+	//}
+	// one pass with Glob over all patterns (no Stat needed)
+	// import "path/filepath"
+
+	patterns := []string{
+	"/boot/vmlinuz-*",
+	"/boot/initramfs-*.img",
+	"/boot/grub2/grub.cfg",          // exact paths are fine: Glob returns it if it exists
+	"/boot/loader/entries/*.conf",
+	"/boot/grub2/grubenv",
 	}
-	var vmlinuzFiles []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), "vmlinuz-") {
-			vmlinuzFiles = append(vmlinuzFiles, "/boot/"+e.Name())
+
+	vmlinuzFiles := make([]string, 0, 64)
+	for _, pat := range patterns {
+		if matches, _ := filepath.Glob(pat); len(matches) > 0 {
+			vmlinuzFiles = append(vmlinuzFiles, matches...)
 		}
 	}
-	vmlinuzFiles = append(vmlinuzFiles, "/boot/efi/EFI/almalinux/grubx64.efi", "/boot/efi/EFI/almalinux/grub.cfg")
+	//var vmlinuzFiles []string
+	//for _, e := range entries {
+	//	if !e.IsDir() && strings.HasPrefix(e.Name(), "vmlinuz-") {
+	//		vmlinuzFiles = append(vmlinuzFiles, "/boot/"+e.Name())
+	//	}
+	//}
+	//vmlinuzFiles = append(vmlinuzFiles, "/boot/efi/EFI/almalinux/grubx64.efi", "/boot/efi/EFI/almalinux/grub.cfg")
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -57,6 +73,6 @@ func main() {
 		log.Fatalf("❌ error: %v", err)
 	} else {
 		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupted kernel file %s", corrupted_file), Token, EncryptionKey)
-		library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("corruptedFile,%s", file), Token, EncryptionKey)
+		library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("corruptedBootFiles,%s", file), Token, EncryptionKey)
 	}
 }
