@@ -10,6 +10,8 @@ tfplan
 
 .terraform/
 .ansible /
+ansible/ansible_vars.yml
+ansible/results.yml
 
 .vagrant/
 

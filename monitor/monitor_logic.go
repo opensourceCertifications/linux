@@ -310,7 +310,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 
 					key := parts[0]
 					value := parts[1]
-					filePath := os.ExpandEnv("/vagrant/monitor/ansible_vars.yml")
+					filePath := os.ExpandEnv("/vagrant/ansible/ansible_vars.yml")
 
 					// Step 1: Load existing YAML if present
 					vars := make(map[string][]string)
