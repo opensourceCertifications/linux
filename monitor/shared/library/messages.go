@@ -38,7 +38,6 @@ func EncryptMessage(message string, encryptionKey string) ([]byte, error) {
 	nonce := make([]byte, 12)
 	_, err = rand.Read(nonce)
 	fmt.Printf("🔑 Nonce (before random generation): %x\n", nonce)
-	//fmt.Printf("🔑 Generated nonce key of length %d bytes\n", keyLength)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate nonce: %v", err)
 	}
@@ -72,9 +71,6 @@ func SendRawMessage(ip string, port int, message string, encryptionKey string) e
 		return fmt.Errorf("failed to encrypt message: %v", err)
 	}
 
-	// Convert encrypted message to a string (hex) for easy transmission
-	//encryptedMessageHex := hex.EncodeToString(encryptedMessage)
-
 	// Prepare the address
 	addr := fmt.Sprintf("%s:%d", ip, port)
 	conn, err := net.Dial("tcp", addr)
@@ -83,8 +79,6 @@ func SendRawMessage(ip string, port int, message string, encryptionKey string) e
 	}
 	defer conn.Close()
 
-	// Send the encrypted message (hex-encoded)
-	//_, err = fmt.Fprintf(conn, "%s\n", encryptedMessageHex)
 	// 👇 Add 4-byte length prefix
 	msgLen := uint32(len(encryptedMessage))
 		lenBuf := make([]byte, 4)

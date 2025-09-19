@@ -34,13 +34,6 @@ func init() {
 
 func main() {
 	fmt.Println("port is", MonitorPort)
-	//entries, err := ioutil.ReadDir("/boot")
-	//if err != nil {
-	//	log.Fatalf("failed to read /boot: %v", err)
-	//}
-	// one pass with Glob over all patterns (no Stat needed)
-	// import "path/filepath"
-
 	patterns := []string{
 	"/boot/vmlinuz-*",
 	"/boot/initramfs-*.img",
@@ -55,13 +48,6 @@ func main() {
 			vmlinuzFiles = append(vmlinuzFiles, matches...)
 		}
 	}
-	//var vmlinuzFiles []string
-	//for _, e := range entries {
-	//	if !e.IsDir() && strings.HasPrefix(e.Name(), "vmlinuz-") {
-	//		vmlinuzFiles = append(vmlinuzFiles, "/boot/"+e.Name())
-	//	}
-	//}
-	//vmlinuzFiles = append(vmlinuzFiles, "/boot/efi/EFI/almalinux/grubx64.efi", "/boot/efi/EFI/almalinux/grub.cfg")
 
 	rand.Seed(time.Now().UnixNano())
 

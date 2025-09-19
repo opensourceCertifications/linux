@@ -99,7 +99,7 @@ monitor/
 ```bash
 git clone https://github.com/<your-username>/<your-repo>.git
 cd <your-repo>
-vagrant up
+vagrant up # run from within the root of the project where you see the Vagrantfile
 ````
 
 ### Usage
