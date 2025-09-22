@@ -1,14 +1,15 @@
 ---
-- name: Installing required packages
+- name: Ensure required tools are present
   ansible.builtin.package:
     name:
       - file
       - zstd
       - xz
       - gzip
+      - grub2-tools-minimal   # for grub2-editenv
     state: present
 
-# Build the target list from your vars (support singular/plural keys)
+# Build target list from your vars
 - name: Gather boot targets from vars
   ansible.builtin.set_fact:
     boot_targets: >-
@@ -18,81 +19,30 @@
         + (corruptedFile | default([]))
       }}
 
-- name: Show targets (debug)
-  ansible.builtin.debug:
-    var: boot_targets
+- name: Init per-file status map
+  ansible.builtin.set_fact:
+    check_status: {}          # e.g. {"/boot/vmlinuz-...": true/false}
 
-# KISS checker per file (format-sanity only; OK if safe-to-use-at-boot)
-- name: Check each target for corruption
-  ansible.builtin.shell: |
-    f="{{ p }}"
-    # missing => corrupted
-    [[ -e "$f" ]] || exit 1
-
-    case "$f" in
-      /boot/vmlinuz-*)
-        # looks like a Linux kernel image
-        file -b -- "$f" | grep -qi 'linux kernel' && exit 0 || exit 1
-        ;;
-
-      /boot/initramfs-*.img)
-        # compression envelope intact; uncompressed images must start with newc magic
-        t="$(file -b -- "$f")"
-        if   [[ "$t" == *Zstandard* ]]; then zstd -t -- "$f"
-        elif [[ "$t" == *XZ*       ]]; then xz   -t -- "$f"
-        elif [[ "$t" == *gzip*     ]]; then gzip -t -- "$f"
-        else head -c 6 -- "$f" | grep -q '^070701$'
-        fi
-        ;;
-
-      /boot/grub2/grub.cfg)
-        # readable + has BLS handoff or at least one menuentry
-        [[ -r "$f" ]] && grep -qE '(^menuentry|[[:space:]]blscfg([[:space:]]|$))' -- "$f"
-        ;;
-
-      /boot/loader/entries/*.conf)
-        # BLS entry must have title, linux, and initrd lines
-        grep -qE '^[[:space:]]*title[[:space:]]+'  -- "$f" \
-        && grep -qE '^[[:space:]]*linux[[:space:]]+'  -- "$f" \
-        && grep -qE '^[[:space:]]*initrd[[:space:]]+' -- "$f"
-        ;;
-
-      /boot/grub2/grubenv)
-        # prefer grub2-editenv; fallback to header check
-        if command -v grub2-editenv >/dev/null 2>&1; then
-          grub2-editenv "$f" list >/dev/null 2>&1
-        else
-          head -n1 -- "$f" | grep -q 'GRUB Environment Block'
-        fi
-        ;;
-
-      *)
-        # if it slipped through, treat as corrupted
-        false
-        ;;
-    esac
-  args:
-    executable: /bin/bash
-  register: chk
-  changed_when: false
-  failed_when: false
+# Run an Ansible-y check for each path (no shell pipelines)
+- name: Check each boot target
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/check_boot_item.yml"
   loop: "{{ boot_targets }}"
   loop_control:
-    loop_var: p
-    label: "{{ p }}"
+    loop_var: target
+    label: "{{ target }}"
 
-# Bucket results
-- name: Compute restored_files / corrupted_files
+# Turn the status map into two lists
+- name: Bucket restored_files / corrupted_files
   ansible.builtin.set_fact:
     restored_files: >-
-      {{ (chk.results | default([]))
-         | selectattr('rc','eq',0)
-         | map(attribute='p')
+      {{ (check_status | default({}) | dict2items)
+         | selectattr('value','eq',true)
+         | map(attribute='key')
          | list }}
     corrupted_files: >-
-      {{ (chk.results | default([]))
-         | selectattr('rc','ne',0)
-         | map(attribute='p')
+      {{ (check_status | default({}) | dict2items)
+         | selectattr('value','ne',true)
+         | map(attribute='key')
          | list }}
 
 # Append to /tmp/results.yml via your helper
@@ -109,4 +59,3 @@
     result_key: "corrupted_files"
     new_items: "{{ corrupted_files | default([]) }}"
   when: corrupted_files | length > 0
-

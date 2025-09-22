@@ -1,146 +1,218 @@
-```markdown
-# Linux Certification Project
+# Linux Chaos Certification Lab
+> Two-VM, Go + Ansible–driven lab for hands‑on Linux troubleshooting and recovery.
 
-This repository is part of a **work-in-progress Linux certification project**.  
-It uses [Vagrant](https://www.vagrantup.com/) to provision a small environment with two virtual machines and introduces Go-based tooling to explore system behavior.  
+This repository provisions a **monitor** node and a **testenv** node using Vagrant. The monitor compiles and ships small Go "break" binaries to the test environment, which intentionally **corrupt or alter system state** (e.g., boot artifacts). After you remediate the issues on `testenv`, **Ansible checks** are run *from the monitor* to verify that the system has been restored.
 
-⚠️ **Note:** This project is still under active construction and is **not yet ready for use**.
+> ⚠️ **Status**: work-in-progress. Interfaces and scenarios may change.
 
----
-
-## 📂 Project Structure
+## Topology & Flow
 
 ```
+Host (your laptop)
+    └─ Vagrant
+        ├─ monitor  (AlmaLinux 9)  192.168.56.10  ← Go toolchain, orchestrator, Ansible
+        └─ testenv  (AlmaLinux 9)  192.168.56.11  ← You fix breaks here
 
-Vagrantfile
-README.md
-monitor/
-├── breaks
-│   └── broken\_boot\_loader.go
-├── go.mod
-├── go.sum
-├── imports.json
-├── monitor\_logic.go
-└── shared
-├── go.mod
-├── library
-│   ├── corrupt\_file.go
-│   └── messages.go
-└── types
-└── shared\_types.go
+Data flow
+  1) monitor compiles a break from `monitor/breaks/` → scp to testenv
+  2) break runs on testenv → connects back to monitor over TCP → sends encrypted JSON events
+  3) you repair testenv
+  4) monitor runs Ansible checks against testenv → collects `/tmp/results.yml` → evaluates
+```
 
-````
+## What’s in here
 
----
+```
+project/
+├── README.md
+├── Vagrantfile
+├── ansible
+│   ├── ansible_vars.yml
+│   ├── checks
+│   │   └── verify_restored.yml
+│   ├── checks.yml
+│   ├── library
+│   │   ├── append_to_results.yml
+│   │   └── check_boot_item.yml
+│   └── results.yml
+├── design.md
+├── monitor
+│   ├── breaks
+│   │   └── broken_boot_loader.go
+│   ├── go.mod
+│   ├── go.sum
+│   ├── monitor_logic.go
+│   ├── shared
+│   │   ├── go.mod
+│   │   ├── library
+│   │   │   ├── corrupt_file.go
+│   │   │   └── messages.go
+│   │   └── types
+│   │       └── shared_types.go
+│   └── utils
+│       └── append_report.json.yml
+└── vagrant_script.sh
+```
 
-## 🖥️ Virtual Machines
+### Key pieces
+- **Vagrantfile** – Spins up both VMs on a private network (default `192.168.56.0/24`).
+- **monitor/** – Go code:
+  - `monitor_logic.go` (main): builds a random break, ships it to `testenv`, listens for AES‑GCM–encrypted status messages, and coordinates execution over SSH.
+  - `breaks/` (examples): self‑contained Go programs that *cause* specific failures. Example: `broken_boot_loader.go` corrupts boot artifacts.
+  - `shared/library/` and `shared/types/`: small helper library used by breaks to send encrypted, length‑prefixed JSON messages back to the monitor.
+- **ansible/** – Playbooks run **from the monitor** to validate remediation:
+  - `checks.yml` dynamically targets the `TESTENV_ADDRESS` and includes per‑check playbooks from `ansible/checks/`.
+  - `checks/verify_restored.yml` verifies boot artifacts (initramfs, kernels, `grubenv`, etc.) and appends structured results to `/tmp/results.yml` on `testenv`.
+  - `library/append_to_results.yml` & `library/check_boot_item.yml` are reusable building blocks for checks.
 
-### **monitor**
-- Provisions Go (`/usr/local/go`).
-- Hosts and runs Go source files in the `monitor/` directory.
-- Manages compilation and execution of break modules.
-- Handles encrypted message passing and logging.
+## Requirements
 
-### **testenv**
-- Minimal Linux environment.
-- Currently only runs updates and upgrades.
-- Serves as the target system for testing break modules.
+- **Vagrant** 2.3+
+- **VirtualBox** 7.x (recommended provider for the default `192.168.56.x` host‑only network)
+- **Host OS**: macOS, Linux, or Windows (WSL2)
 
----
+## Quick start
 
-## ⚙️ Go Components
+### 1) Bring up the VMs
 
-### **monitor/monitor_logic.go**
-- Opens a TCP listener on a random port.
-- Generates a **token** and an **encryption key**.
-- Randomly selects a break module from `breaks/`, compiles it, and deploys it to `testenv`.
-- Transfers the binary to `/tmp` on `testenv` and executes it as root.
-- Processes encrypted log messages:
-  - Validates messages with token + encryption key.
-  - Logs accepted messages (e.g., `chaos_report` → JSON log).
-  - Closes the port on `"operation_complete"`.
-- Intended to loop every **7–10 minutes**.
-
----
-
-### **monitor/breaks/broken_boot_loader.go**
-- Simulates a **boot failure** by corrupting a critical boot file.
-
----
-
-### **monitor/shared/library/corrupt_file.go**
-- Corrupts files at the byte level:
-  - Input: file path + corruption percentage.
-  - Randomly selects that % of bytes.
-  - Flips bits (`0 ↔ 1`) and adds a random number for additional corruption.
-
----
-
-### **monitor/shared/library/messages.go**
-- Builds and encrypts messages:
-  - Input: IP, port, token, type, payload, key.
-  - Encrypts the message and sends it to the target.
-
----
-
-### **monitor/shared/types/shared_types.go**
-- Defines shared objects between modules.
-- Currently includes only the `Message` struct.
-
----
-
-## 🚀 Getting Started
-
-### Requirements
-- [Vagrant](https://developer.hashicorp.com/vagrant/downloads)
-- [VirtualBox](https://www.virtualbox.org/) (or another provider)
-
-### Setup
 ```bash
-git clone https://github.com/<your-username>/<your-repo>.git
-cd <your-repo>
-vagrant up # run from within the root of the project where you see the Vagrantfile
-````
+vagrant up
+```
 
-### Usage
+- Both VMs use the `almalinux/9` base box.
+- A host ↔ VM sync folder `transfer/` is mounted at `/vagrant_transfer` on both VMs.
+- The `testenv` provisioner waits until **`/vagrant_transfer/monitor.pub`** exists, and then adds it to **root**’s `authorized_keys`.
 
-SSH into the **monitor** VM and run the Go logic:
+If the monitor’s provisioning did not generate a key automatically, do this once on the monitor:
 
 ```bash
 vagrant ssh monitor
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N ''
+cp ~/.ssh/id_ed25519.pub /vagrant_transfer/monitor.pub
+# wait ~a few seconds; the testenv provisioner loop will pick it up and install it for root
+```
+
+### 2) Ensure toolchain on the monitor
+
+The repo ships a helper script that installs Go 1.24.x and Ansible on AlmaLinux:
+
+```bash
+vagrant ssh monitor
+sudo /vagrant/vagrant_script.sh    # idempotent
+go version                         # verify
+ansible --version                  # verify
+```
+
+### 3) Run a break from the monitor
+
+1. Tell the monitor where the test VM lives (matches the Vagrantfile):
+
+```bash
+export TESTENV_ADDRESS=192.168.56.11
+```
+
+2. Start the orchestrator:
+
+```bash
 cd /vagrant/monitor
+go mod tidy
 go run monitor_logic.go
 ```
 
-SSH into the **testenv** VM fix the broken stuff:
+What happens:
+- The monitor picks a random Go source from `./breaks/`, injects runtime values (`MonitorIP`, `MonitorPort`, `Token`, `EncryptionKey`) via **`-ldflags`**, and compiles to `/tmp/break_tool`.
+- It securely copies the binary to `testenv` as **root** and executes it.
+- The break connects back to the monitor over TCP, and sends AES‑GCM‑encrypted, length‑prefixed JSON using `shared/types.ChaosMessage`.
+
+### 4) Fix the system on `testenv`
+
+SSH directly if you prefer a terminal on the target VM:
 
 ```bash
 vagrant ssh testenv
-```
----
-
-## ⚠️ Disclaimer
-
-This project is **not production ready** and is part of a **Linux certification build**.
-It may deliberately corrupt files or simulate destructive operations.
-Run only inside the provided Vagrant environment.
-
----
-
-## 📌 Roadmap
-
-* Expand break modules (e.g., file system, networking, memory stress).
-* Add tasks for the user to do in the `testenv` VM.
-* Improve logging and reporting.
-* Documentation for certification steps.
-
----
-
-## 📝 License
-
-This project is released under the MIT License. See [LICENSE](LICENSE) for details.
-
+# troubleshoot and repair
 ```
 
-Do you also want me to add a **Mermaid diagram** in the README showing how `monitor` communicates with `testenv` and runs the breaks? That would make the architecture pop nicely on GitHub.
+### 5) Validate with Ansible (from the monitor)
+
+```bash
+cd /vagrant/ansible
+export TESTENV_ADDRESS=192.168.56.11
+ansible-playbook -i localhost, checks.yml
 ```
+
+The playbook will:
+- Dynamically add the host using `$TESTENV_ADDRESS`.
+- Run every check playbook in `ansible/checks/` (e.g. `verify_restored.yml`).
+- Fetch **`/tmp/results.yml`** from `testenv` into the local `ansible/` folder.
+
+Example `results.yml` (from this repo):
+
+```yaml
+corrupted_files:
+- /boot/vmlinuz-5.14.0-570.44.1.el9_6.x86_64
+```
+
+## Writing a new *break*
+
+Put a new Go program under `monitor/breaks/`. Each break is a standalone `package main` that expects the following **link‑time variables** to be provided by the monitor:
+
+```go
+var (
+    MonitorIP     string
+    MonitorPort   int
+    Token         string
+    EncryptionKey string
+)
+```
+
+Use the shared helpers to report progress back to the monitor:
+
+```go
+import (
+    lib "github.com/opensourceCertifications/linux/shared/library"
+)
+
+func main() {
+    // do something destructive (carefully!)
+    // ...
+    _ = lib.SendMessage(MonitorIP, MonitorPort, "chaos_report", "did something", Token, EncryptionKey)
+}
+```
+
+> Tip: see `breaks/broken_boot_loader.go` for a concrete example.
+
+## Adding a new *check*
+
+Place a new playbook under `ansible/checks/`. It will be picked up automatically by `checks.yml`. Leverage the existing building blocks:
+
+- `library/check_boot_item.yml` – probe/validate a specific boot artifact (kernel, initramfs, `grubenv`, etc.).
+- `library/append_to_results.yml` – append a list of items to `/tmp/results.yml` on `testenv` in an idempotent, merge‑safe way.
+
+If your break emits variables back to the monitor (e.g., `corruptedBootFiles`), capture them in `ansible/ansible_vars.yml` and consume them from your checks.
+
+## Configuration
+
+- **IP addresses** – Change `monitor_ip` / `testenv_ip` in the `Vagrantfile` if `192.168.56.0/24` is occupied.
+- **SSH keys** – The test VM trusts the monitor by reading `/vagrant_transfer/monitor.pub` during provisioning. If you rotate keys, copy the new pubkey to that path and reprovision `testenv`.
+- **Go toolchain** – Managed by `vagrant_script.sh` (Go 1.24.x). Update as needed.
+- **Ansible vars** – See `ansible/ansible_vars.yml` for inputs used by checks (e.g., `corruptedBootFiles`).
+
+## Troubleshooting
+
+- **`testenv` stuck waiting for `monitor.pub`** – Generate the key on the monitor and copy it to `/vagrant_transfer/monitor.pub`.
+- **Cannot SSH as root** – Confirm the pubkey was appended to `/root/.ssh/authorized_keys` on `testenv` (the provisioner loop does this).
+- **Go not found** – Run `sudo /vagrant/vagrant_script.sh` on the monitor.
+- **Ansible not found** – The script installs it via `pip --user`. Re‑login or ensure `~/.local/bin` is on your PATH.
+- **Listener blocked** – If you added a firewall, ensure the monitor can accept inbound TCP from `testenv`.
+- **Port or IP conflicts** – Adjust the private network or provider. VirtualBox host‑only networks work out of the box.
+
+## Security notes
+
+- The monitor uses `ssh.InsecureIgnoreHostKey()` for convenience. Do not use this in production.
+- Breaks intentionally corrupt system files. Only use in disposable VMs.
+- Messages from breaks are encrypted with AES‑GCM and length‑prefixed before being sent to the monitor.
+
+## License
+
+MIT (or your preferred license). Replace this section as appropriate.
