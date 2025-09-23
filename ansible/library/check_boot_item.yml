@@ -175,16 +175,18 @@
   ansible.builtin.set_fact:
     _ok: >-
       {{
-        (ge is defined and ge.rc == 0)
+        (_ok | default(false))
+        or (ge is defined and ge.rc == 0)
         or (
-          ((geh.content | default('') | b64decode) | splitlines | first | default(''))
-          == 'GRUB Environment Block'
+          geh is defined and geh.content is defined and
+          (((geh.content | b64decode | string) | split('\n') | first | default(''))
+           == 'GRUB Environment Block')
         )
-        or _ok
       }}
   when:
     - st.stat.exists
     - target == '/boot/grub2/grubenv'
+
 
 # ---------------- record result ----------------
 - name: Update check_status
