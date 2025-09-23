@@ -1,0 +1,3 @@
+corruptedBootFiles:
+- /boot/loader/entries/4236d34ab6f34ca098a791508a15c09c-5.14.0-570.44.1.el9_6.x86_64.conf
+- /boot/loader/entries/247b8e2014c44b8580a63b4f4609f86b-5.14.0-570.12.1.el9_6.x86_64.conf
