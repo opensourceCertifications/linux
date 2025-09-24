@@ -17,8 +17,6 @@ monitor/ansible/results.yml
 
 *.log
 
-go/
-
 .cache
 
 .bash_history
