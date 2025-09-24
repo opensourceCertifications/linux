@@ -122,14 +122,9 @@ Vagrant.configure("2") do |config|
 
       # Loop until the monitor's public key appears in the shared folder
       while true; do
-        if [ -s #{host_mount}/monitor.pub ]; then
-          # Ensure the .ssh directory/authorized_keys exist with safe perms
-          install -d -m 700 -o $SUDO_USER -g $SUDO_USER ~$SUDO_USER/.ssh
-          install -m 600 -o $SUDO_USER -g $SUDO_USER /dev/null ~$SUDO_USER/.ssh/authorized_keys 2>/dev/null || true
+        if [ "$(wc -l < #{host_mount}/monitor.pub)" -gt 0 ]; then
           # Append the key and fix permissions
-          cat #{host_mount}/monitor.pub >> ~$SUDO_USER/.ssh/authorized_keys
-          chown $SUDO_USER:$SUDO_USER ~$SUDO_USER/.ssh/authorized_keys
-          chmod 600 ~$SUDO_USER/.ssh/authorized_keys
+          cat #{host_mount}/monitor.pub >> $HOME/.ssh/authorized_keys
           break
         else
           echo "Waiting for monitor.pub to be written..." >> /home/vagrant/ssh_key_install.log
