@@ -1,26 +1,29 @@
 package library
 
 import (
-	"fmt"
 	"math/rand"
 	"os"
 	"time"
+	"log"
 )
 
-func CorruptFile(path string, percent int) (string, error) {
+func CorruptFile(path string, percent int) (status string, err error) {
 	// Read file
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
+		log.Printf("failed to read file %s: %v", path, err)
+		return "", err
 	}
 	if len(data) == 0 {
-		return "", fmt.Errorf("file is empty, nothing to corrupt")
+		log.Printf("file %s is empty, nothing to corrupt", path)
+		return "", err
 	}
 
 	// Save original modtime
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to stat file: %w", err)
+		log.Printf("failed to stat file %s: %v", path, err)
+		return "", err
 	}
 	origModTime := info.ModTime()
 
@@ -56,15 +59,17 @@ func CorruptFile(path string, percent int) (string, error) {
 
 	// Write back
 	if err := os.WriteFile(path, data, info.Mode()); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
+		log.Printf("failed to write file %s: %v", path, err)
+		return "", err
 	}
 
 	// Restore original modtime
 	if err := os.Chtimes(path, origModTime, origModTime); err != nil {
-		return "", fmt.Errorf("failed to restore times: %w", err)
+		log.Printf("failed to restore times on file %s: %v", path, err)
+		return "", err
 	}
 
-	msg := fmt.Sprintf("File %s corrupted (flip+offset, %d%% of bytes)", path, percent)
-	return msg, nil
+	log.Printf("File %s corrupted (flip+offset, %d%% of bytes)", path, percent)
+	return
 }
 

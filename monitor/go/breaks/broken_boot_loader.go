@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"math/rand"
-	"time"
+//	"time"
 	"github.com/opensourceCertifications/linux/shared/library"
 	"path/filepath"
 )
@@ -49,7 +49,7 @@ func main() {
 		}
 	}
 
-	rand.Seed(time.Now().UnixNano())
+	//rand.Seed(time.Now().UnixNano())
 
 	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("found vmlinuz files: %v", vmlinuzFiles), Token, EncryptionKey)
 	file := vmlinuzFiles[rand.Intn(len(vmlinuzFiles))]

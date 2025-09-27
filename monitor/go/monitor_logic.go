@@ -10,17 +10,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
+//		"io/ioutil"
 	mathrand "math/rand"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"time"
+//	"time"
 	"errors"
 	"strings"
 	"gopkg.in/yaml.v2"
+	"log"
 
 	"golang.org/x/crypto/ssh"
 
@@ -37,7 +38,7 @@ func main() {
 
 	// Read private key (handles SSH connection)
 	keyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
-	key, err := ioutil.ReadFile(keyPath)
+	key, err := os.ReadFile(keyPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading private key: %v\n", err)
 		os.Exit(1)
@@ -94,7 +95,7 @@ func pickRandomFile(dir string) (string, error) {
 	if len(files) == 0 {
 		return "", fmt.Errorf("no .go files found in %s", dir)
 	}
-	mathrand.Seed(time.Now().UnixNano())
+	///mathrand.Seed(time.Now().UnixNano())
 	return files[mathrand.Intn(len(files))], nil
 }
 
@@ -138,13 +139,31 @@ func runRemoteBinary(ip string, config *ssh.ClientConfig, remotePath string) err
 	if err != nil {
 		return fmt.Errorf("ssh dial failed: %w", err)
 	}
-	defer client.Close()
+	//defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil && !errors.Is(err, io.EOF) {
+			log.Printf("client close ssh client: %v", err)
+		}
+	}()
 
 	session, err := client.NewSession()
-	if err != nil {
+		if err != nil {
 		return fmt.Errorf("new ssh session failed: %w", err)
 	}
-	defer session.Close()
+	defer func() {
+		if err := session.Close(); err != nil && !errors.Is(err, io.EOF) {
+			log.Printf("close ssh session: %v", err)
+		}
+	}()
+	//if err := session.Close(); err != nil && !errors.Is(err, io.EOF) {
+	//	return fmt.Errorf("new ssh session failed: %w", err)
+	//}
+	////defer session.Close()
+	//defer func() {
+	//	if err := session.Close(); err != nil {
+	//		log.Printf("session close ssh client: %v", err)
+	//	}
+	//}()
 
 	// chmod, then start in background; log to /tmp/break_tool.log
 	cmd := fmt.Sprintf("chmod +x %s && nohup sudo %s >/tmp/break_tool.log 2>&1 &", remotePath, remotePath)
@@ -159,14 +178,22 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 		// Step 1: Find random open port
 		listener, err := net.Listen("tcp", ":0") // Open a TCP port and start listening
 		if err != nil {
-			return fmt.Errorf("Failed to open listener: %v", err)
+			return fmt.Errorf("failed to open listener: %v", err)
 		}
-		defer listener.Close()
+		//defer listener.Close()
+		defer func() {
+			if err := listener.Close(); err != nil {
+				log.Printf("listener close ssh client: %v", err)
+			}
+		}()
 
 		// Extract the actual port chosen
 		addr := listener.Addr().(*net.TCPAddr)
 		port := addr.Port
 		token, err := generateToken(16) // 16 bytes = 32 hex chars
+		if err != nil {
+			return fmt.Errorf("failed to generate token: %v", err)
+		}
 		fmt.Printf("🔑 Generated token: %s\n", token)
 		fmt.Printf("📡 Listening on port %d\n", port)
 
@@ -203,18 +230,23 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 			opperation := handleChaosConnection(conn, token, encryptionKey)
 			if opperation == "complete" {
 				fmt.Println("✅ Operation completed successfully, exiting listener.")
-				listener.Close()
-				return nil // Exit the listener loop if operation is complete
+				//listener.Close()
+				if err := listener.Close(); err != nil {
+					log.Printf("listener close ssh client: %v", err)
+				}
+					return nil // Exit the listener loop if operation is complete
 			}
 		}
-
-		// This point is never reached due to the infinite loop above.
-		defer listener.Close()
 	}
 }
 
 func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey string) string {
-	defer conn.Close()
+	//defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("conn close ssh client: %v", err)
+		}
+	}()
 
 	reader := bufio.NewReader(conn)
 

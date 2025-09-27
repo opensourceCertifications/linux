@@ -20,18 +20,18 @@ func EncryptMessage(message string, encryptionKey string) ([]byte, error) {
 	fmt.Printf("🔒 Message to encrypt: %s\n", message)
 	fmt.Printf("key: %s\n", key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode encryption key: %v", err)
+		return nil, err
 	}
 
 	// Ensure the key is the correct length for AES (32 bytes for AES-256)
 	if len(key) != 32 {
-		return nil, fmt.Errorf("invalid encryption key length: %d bytes (expected 32 bytes)", len(key))
+		return nil, err
 	}
 
 	// Create a new AES cipher block from the key
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
+		return nil, err
 	}
 
 	// Create a nonce (12 random bytes) for AES-GCM
@@ -39,13 +39,13 @@ func EncryptMessage(message string, encryptionKey string) ([]byte, error) {
 	_, err = rand.Read(nonce)
 	fmt.Printf("🔑 Nonce (before random generation): %x\n", nonce)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate nonce: %v", err)
+		return nil, err
 	}
 
 	// Create an AES-GCM cipher instance
 	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AES-GCM cipher: %v", err)
+		return nil, err
 	}
 
 	// Encrypt the message using AES-GCM
@@ -98,7 +98,7 @@ func SendRawMessage(ip string, port int, message string, encryptionKey string) e
 	return nil
 }
 
-func SendMessage(ip string, port int, status string, message string, token string, encryptionKey string) error {
+func SendMessage(ip string, port int, status string, message string, token string, encryptionKey string) {
 	fmt.Printf("🔒 Preparing to send message to %s:%d\n", ip, port)
 	// Prepare the JSON payload using the shared ChaosMessage type
 	msg := types.ChaosMessage{
@@ -110,14 +110,15 @@ func SendMessage(ip string, port int, status string, message string, token strin
 	// Marshal the message to JSON
 	jsonData, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %v", err)
+		fmt.Printf("❌ Failed to marshal JSON: %v\n", err)
+		return
 	}
 
 	// Use the SendRawMessage function from the library to send the encrypted message
 	fmt.Printf("🔒 Sending message")
 	err = SendRawMessage(ip, port, string(jsonData), encryptionKey)
 	if err != nil {
-		return fmt.Errorf("failed to send message: %v", err)
+		fmt.Printf("❌ Failed to send message: %v\n", err)
+		return
 	}
-	return nil
 }

@@ -40,21 +40,17 @@
         dest: /tmp/ansible_vars.yml
         mode: '0600'
 
-    - name: creating results files
-      ansible.builtin.file:
-        path: /tmp/results.yml
+    - name: Initialize /tmp/results.yml to empty JSON
+      ansible.builtin.copy:
+        dest: /tmp/results.yml
+        content: "{}\n"
         owner: root
         group: root
         mode: '0644'
-        state: touch
+
 
     - name: Run all check task files on testenv
       block:
-        - name: Remove stale /tmp/results.json (per check)
-          ansible.builtin.file:
-            path: /tmp/results.json
-            state: absent
-
         - name: Include {{ item | basename }}
           ansible.builtin.include_tasks: "{{ item }}"
           vars:
@@ -66,7 +62,7 @@
             label: "{{ item | basename }}"
 
 # Play 3: fetch /tmp/results.json from testenv to results/
-- name: Fetch /tmp/results.json (per check)
+- name: Fetch /tmp/results.yml (per check)
   hosts: testenv
   gather_facts: false
   remote_user: root
