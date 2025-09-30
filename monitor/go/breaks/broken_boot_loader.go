@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"math/rand"
-//	"time"
-	"github.com/opensourceCertifications/linux/shared/library"
+	"chaos-agent/shared/library"
 	"path/filepath"
 )
 
@@ -48,8 +47,6 @@ func main() {
 			vmlinuzFiles = append(vmlinuzFiles, matches...)
 		}
 	}
-
-	//rand.Seed(time.Now().UnixNano())
 
 	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("found vmlinuz files: %v", vmlinuzFiles), Token, EncryptionKey)
 	file := vmlinuzFiles[rand.Intn(len(vmlinuzFiles))]

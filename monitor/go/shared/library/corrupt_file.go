@@ -72,4 +72,3 @@ func CorruptFile(path string, percent int) (status string, err error) {
 	log.Printf("File %s corrupted (flip+offset, %d%% of bytes)", path, percent)
 	return
 }
-

@@ -8,24 +8,23 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-//		"io/ioutil"
+	"log"
 	mathrand "math/rand"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
-//	"time"
-	"errors"
 	"strings"
+
 	"gopkg.in/yaml.v2"
-	"log"
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/opensourceCertifications/linux/shared/types"
+	"chaos-agent/shared/types"
 )
 
 func main() {
@@ -72,7 +71,7 @@ func main() {
 	err = runRemoteCommandWithListener(targetIP, config, scriptPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)  // This will exit only on critical failure to start service
+		os.Exit(1) // This will exit only on critical failure to start service
 	}
 
 	// The service should now keep running and processing incoming connections
@@ -147,7 +146,7 @@ func runRemoteBinary(ip string, config *ssh.ClientConfig, remotePath string) err
 	}()
 
 	session, err := client.NewSession()
-		if err != nil {
+	if err != nil {
 		return fmt.Errorf("new ssh session failed: %w", err)
 	}
 	defer func() {
@@ -155,15 +154,6 @@ func runRemoteBinary(ip string, config *ssh.ClientConfig, remotePath string) err
 			log.Printf("close ssh session: %v", err)
 		}
 	}()
-	//if err := session.Close(); err != nil && !errors.Is(err, io.EOF) {
-	//	return fmt.Errorf("new ssh session failed: %w", err)
-	//}
-	////defer session.Close()
-	//defer func() {
-	//	if err := session.Close(); err != nil {
-	//		log.Printf("session close ssh client: %v", err)
-	//	}
-	//}()
 
 	// chmod, then start in background; log to /tmp/break_tool.log
 	cmd := fmt.Sprintf("chmod +x %s && nohup sudo %s >/tmp/break_tool.log 2>&1 &", remotePath, remotePath)
@@ -171,7 +161,6 @@ func runRemoteBinary(ip string, config *ssh.ClientConfig, remotePath string) err
 	session.Stderr = os.Stderr
 	return session.Run(cmd)
 }
-
 
 func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPath string) error {
 	for {
@@ -226,7 +215,6 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 				continue // Continue waiting for new connections even if one fails
 			}
 			// Handle the connection in a separate goroutine so it doesn't block other connections
-			//go handleChaosConnection(conn, token, encryptionKey)
 			opperation := handleChaosConnection(conn, token, encryptionKey)
 			if opperation == "complete" {
 				fmt.Println("✅ Operation completed successfully, exiting listener.")
@@ -234,7 +222,7 @@ func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPat
 				if err := listener.Close(); err != nil {
 					log.Printf("listener close ssh client: %v", err)
 				}
-					return nil // Exit the listener loop if operation is complete
+				return nil // Exit the listener loop if operation is complete
 			}
 		}
 	}
@@ -307,83 +295,83 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		}
 
 		switch msg.Status {
-			case "operation_complete":
-				if msg.TokenCheck {
-					fmt.Println("✅ Operation completed, continuing to listen for new messages.")
-					return "complete"
-				} else {
-					fmt.Println("❌ Operation_complete received but token check failed")
+		case "operation_complete":
+			if msg.TokenCheck {
+				fmt.Println("✅ Operation completed, continuing to listen for new messages.")
+				return "complete"
+			} else {
+				fmt.Println("❌ Operation_complete received but token check failed")
+			}
+
+		case "general":
+			// just print the message
+			fmt.Printf("📢 General: %s", msg.Message)
+
+		case "chaos_report":
+			fmt.Printf("🐛 Chaos Report: %s", msg.Message)
+			logPath := "/tmp/chaos_reports.log"
+			f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "log open error: %v\n", err)
+				break
+			}
+			// write the full JSON we received (plus newline)
+			if _, err := f.Write(append(plaintext, '\n')); err != nil {
+				fmt.Fprintf(os.Stderr, "log write error: %v\n", err)
+			}
+			_ = f.Close()
+
+		case "variable":
+			parts := strings.SplitN(msg.Message, ",", 2)
+			if len(parts) != 2 {
+				fmt.Printf("⚠️ Invalid variable message format: %s\n", msg.Message)
+				break
+			}
+
+			key := parts[0]
+			value := parts[1]
+			filePath := os.ExpandEnv("../ansible/ansible_vars.yml")
+
+			// Step 1: Load existing YAML if present
+			vars := make(map[string][]string)
+			if data, err := os.ReadFile(filePath); err == nil {
+				if len(data) > 0 {
+					if err := yaml.Unmarshal(data, &vars); err != nil {
+						fmt.Fprintf(os.Stderr, "YAML unmarshal error: %v\n", err)
+						break
+					}
 				}
+			}
 
-			case "general":
-				// just print the message
-				fmt.Printf("📢 General: %s", msg.Message)
-
-			case "chaos_report":
-				fmt.Printf("🐛 Chaos Report: %s", msg.Message)
-				logPath := "/tmp/chaos_reports.log"
-				f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "log open error: %v\n", err)
+			// Step 2: Append value (avoid duplicates if you like)
+			list := vars[key]
+			// Optional: deduplicate
+			alreadyExists := false
+			for _, v := range list {
+				if v == value {
+					alreadyExists = true
 					break
 				}
-				// write the full JSON we received (plus newline)
-				if _, err := f.Write(append(plaintext, '\n')); err != nil {
-					fmt.Fprintf(os.Stderr, "log write error: %v\n", err)
-				}
-				_ = f.Close()
+			}
+			if !alreadyExists {
+				vars[key] = append(list, value)
+			}
 
-				case "variable":
-					parts := strings.SplitN(msg.Message, ",", 2)
-					if len(parts) != 2 {
-						fmt.Printf("⚠️ Invalid variable message format: %s\n", msg.Message)
-						break
-					}
+			// Step 3: Write back full YAML
+			out, err := yaml.Marshal(vars)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "YAML marshal error: %v\n", err)
+				break
+			}
 
-					key := parts[0]
-					value := parts[1]
-					filePath := os.ExpandEnv("../ansible/ansible_vars.yml")
+			if err := os.WriteFile(filePath, out, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "variable file write error: %v\n", err)
+			} else {
+				fmt.Printf("✅ Updated %s with %s -> %s\n", filePath, key, value)
+			}
 
-					// Step 1: Load existing YAML if present
-					vars := make(map[string][]string)
-					if data, err := os.ReadFile(filePath); err == nil {
-						if len(data) > 0 {
-							if err := yaml.Unmarshal(data, &vars); err != nil {
-								fmt.Fprintf(os.Stderr, "YAML unmarshal error: %v\n", err)
-								break
-							}
-						}
-					}
-
-					// Step 2: Append value (avoid duplicates if you like)
-					list := vars[key]
-					// Optional: deduplicate
-					alreadyExists := false
-					for _, v := range list {
-						if v == value {
-							alreadyExists = true
-							break
-						}
-					}
-					if !alreadyExists {
-						vars[key] = append(list, value)
-					}
-
-					// Step 3: Write back full YAML
-					out, err := yaml.Marshal(vars)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "YAML marshal error: %v\n", err)
-						break
-					}
-
-					if err := os.WriteFile(filePath, out, 0644); err != nil {
-						fmt.Fprintf(os.Stderr, "variable file write error: %v\n", err)
-					} else {
-						fmt.Printf("✅ Updated %s with %s -> %s\n", filePath, key, value)
-					}
-
-			default:
-				fmt.Printf("⚠️ Unknown message type: %s", msg.Status)
+		default:
+			fmt.Printf("⚠️ Unknown message type: %s", msg.Status)
 		}
 	}
 }
@@ -418,10 +406,10 @@ func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) 
 	nonce, ciphertext := encryptedData[:12], encryptedData[12:]
 	// Separate the last 16 bytes (authentication tag)
 
-////////////////////////////////////////////////////////////////////////////////
-//// keeping this code here and commented to make debugging easier as we go ////
-//// I'll probably remove it after we release version 1					 ////
-////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////////////////////////
+	//// keeping this code here and commented to make debugging easier as we go ////
+	//// I'll probably remove it after we release version 1					 ////
+	////////////////////////////////////////////////////////////////////////////////
 	//tagCopy := ciphertext[len(ciphertext)-16:]
 	//ciphertextCopy := ciphertext[:len(ciphertext)-16] // Remove the tag from ciphertext
 
@@ -433,7 +421,7 @@ func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) 
 	//fmt.Printf("🔑 Nonce (%d bytes): %x\n", len(nonce), nonce)
 	//fmt.Printf("🔒 Ciphertext (%d bytes): %x\n", len(ciphertextCopy), ciphertextCopy)
 	//fmt.Printf("🔐 Tag (%d bytes): %x\n", len(tagCopy), tagCopy)
-////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////////////////////////
 
 	// Initialize AES-GCM cipher block
 	block, err := aes.NewCipher(key)
@@ -456,7 +444,6 @@ func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) 
 	fmt.Printf("🔓 Decrypted plaintext: %s\n", plaintext)
 	return plaintext, nil
 }
-
 
 // AppendChaosToReport appends a ChaosMessage under its token key
 // into $HOME/report.log.json. The JSON file is a map[string][]ChaosMessage.

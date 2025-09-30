@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"net"
 	"encoding/binary"
-	"github.com/opensourceCertifications/linux/shared/types"
+	"chaos-agent/shared/types"
 )
 
 // EncryptMessage encrypts the message using AES-GCM with the provided encryption key

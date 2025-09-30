@@ -1,0 +1,13 @@
+# .yamllint
+extends: default
+rules:
+  line-length:
+    max: 120
+    level: warning
+  indentation:
+    indent-sequences: consistent
+    spaces: 2
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']  # keep Ansible-friendly if you like
+    level: warning
+

@@ -6,8 +6,14 @@
 set -euo pipefail
 
 err() { printf 'bootcheck: %s\n' "$*" >&2; }
-clean() { printf 'CLEAN\n'; exit 0; }
-corrupt() { printf 'CORRUPTED\n'; exit 1; }
+clean() {
+  printf 'CLEAN\n'
+  exit 0
+}
+corrupt() {
+  printf 'CORRUPTED\n'
+  exit 1
+}
 
 if [[ $# -ne 1 ]]; then
   err "usage: $0 /absolute/path"
@@ -23,7 +29,7 @@ if [[ ! -e "$path" ]]; then
 fi
 
 # Helpers
-have() { command -v "$1" >/dev/null 2>&1; }
+have() { command -v "$1" > /dev/null 2>&1; }
 
 # ----- Type classification by path pattern (RHEL/Alma) -----
 is_initramfs=0
@@ -43,46 +49,55 @@ is_efi=0
 # ----- Probes (authoritative, read-only) -----
 
 # initramfs: lsinitrd should succeed regardless of compression
-if (( is_initramfs )); then
-  if ! have lsinitrd; then err "lsinitrd not found"; corrupt; fi
-  lsinitrd "$path" >/dev/null 2>&1 && clean || corrupt
+if ((is_initramfs)); then
+  if ! have lsinitrd; then
+    err "lsinitrd not found"
+    corrupt
+  fi
+  lsinitrd "$path" > /dev/null 2>&1 && clean || corrupt
 fi
 
 # kernel image: `file` must say "linux kernel"
-if (( is_kernel )); then
-  if ! have file; then err "file(1) not found"; corrupt; fi
-  desc="$(file -b -- "$path" 2>/dev/null || true)"
+if ((is_kernel)); then
+  if ! have file; then
+    err "file(1) not found"
+    corrupt
+  fi
+  desc="$(file -b -- "$path" 2> /dev/null || true)"
   shopt -s nocasematch
   [[ "$desc" =~ linux\ kernel ]] && clean || corrupt
 fi
 
 # grubenv: grub2-editenv list OK, or header line matches
-if (( is_grubenv )); then
-  if have grub2-editenv && grub2-editenv "$path" list >/dev/null 2>&1; then
+if ((is_grubenv)); then
+  if have grub2-editenv && grub2-editenv "$path" list > /dev/null 2>&1; then
     clean
   else
     # Fallback: header must be 'GRUB Environment Block'
-    header="$(head -n1 -- "$path" 2>/dev/null || true)"
+    header="$(head -n1 -- "$path" 2> /dev/null || true)"
     [[ "$header" == "GRUB Environment Block" ]] && clean || corrupt
   fi
 fi
 
 # grub.cfg: must contain blscfg OR at least one menuentry
-if (( is_grubcfg )); then
+if ((is_grubcfg)); then
   if grep -Eq 'blscfg|menuentry' -- "$path"; then clean; else corrupt; fi
 fi
 
 # BLS entry: must include title, linux, initrd keys
-if (( is_bls )); then
-  grep -Eq '^title'  -- "$path" && \
-  grep -Eq '^linux'  -- "$path" && \
-  grep -Eq '^initrd' -- "$path" && clean || corrupt
+if ((is_bls)); then
+  grep -Eq '^title' -- "$path" &&
+    grep -Eq '^linux' -- "$path" &&
+    grep -Eq '^initrd' -- "$path" && clean || corrupt
 fi
 
 # EFI binaries: `file` must report EFI application
-if (( is_efi )); then
-  if ! have file; then err "file(1) not found"; corrupt; fi
-  desc="$(file -b -- "$path" 2>/dev/null || true)"
+if ((is_efi)); then
+  if ! have file; then
+    err "file(1) not found"
+    corrupt
+  fi
+  desc="$(file -b -- "$path" 2> /dev/null || true)"
   shopt -s nocasematch
   [[ "$desc" =~ efi\ application ]] && clean || corrupt
 fi
@@ -90,7 +105,7 @@ fi
 # Fallback: if file is RPM-owned, verify just that file; else treat as corrupted
 if rpm -qf --quiet -- "$path"; then
   # rpm -Vf prints nothing when the *file* is pristine
-  out="$(rpm -Vf -- "$path" 2>/dev/null || true)"
+  out="$(rpm -Vf -- "$path" 2> /dev/null || true)"
   [[ -z "$out" ]] && clean || corrupt
 else
   err "unknown type and not RPM-owned: $path"

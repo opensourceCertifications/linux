@@ -8,8 +8,8 @@ set -euo pipefail
 # -----------------------------
 # 1) System refresh + basic tools
 # -----------------------------
-dnf update -y                         # bring package metadata and packages up to date
-dnf install -y wget                   # wget used below to fetch Go tarball
+dnf update -y       # bring package metadata and packages up to date
+dnf install -y wget # wget used below to fetch Go tarball
 
 # -----------------------------
 # 2) Install Go toolchain (system-wide)
@@ -48,7 +48,7 @@ chmod 644 /etc/profile.d/go.sh
 # 3) Install Ansible for the vagrant user (user-site)
 #    - Keep system Python clean; install ansible in vagrant’s ~/.local
 # -----------------------------
-dnf install -y python3-pip            # ensure pip is available
+dnf install -y python3-pip # ensure pip is available
 
 # Install ansible into the vagrant user’s home (~/.local/bin/ansible, etc.)
 # Using su -c executes the command as the vagrant user; --user avoids system-wide changes.
