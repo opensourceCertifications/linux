@@ -1,22 +1,22 @@
+// Description: This program searches for Linux kernel files in the /boot directory and corrupts one of them to simulate a broken bootloader scenario. It reports its actions to a monitoring server.
 package main
 
 import (
-	"log"
-	"os"
-	"fmt"
-	"strconv"
-	"math/rand"
 	"chaos-agent/shared/library"
+	"fmt"
+	"log"
+	"math/rand"
+	"os"
 	"path/filepath"
+	"strconv"
 )
 
-
 var (
-	MonitorIP     string
+	MonitorIP      string
 	MonitorPortStr string
-	MonitorPort   int
-	Token         string
-	EncryptionKey string
+	MonitorPort    int
+	Token          string
+	EncryptionKey  string
 )
 
 func init() {
@@ -30,15 +30,14 @@ func init() {
 	}
 }
 
-
 func main() {
 	fmt.Println("port is", MonitorPort)
 	patterns := []string{
-	"/boot/vmlinuz-*",
-	"/boot/initramfs-*.img",
-	"/boot/grub2/grub.cfg",          // exact paths are fine: Glob returns it if it exists
-	"/boot/loader/entries/*.conf",
-	"/boot/grub2/grubenv",
+		"/boot/vmlinuz-*",
+		"/boot/initramfs-*.img",
+		"/boot/grub2/grub.cfg", // exact paths are fine: Glob returns it if it exists
+		"/boot/loader/entries/*.conf",
+		"/boot/grub2/grubenv",
 	}
 
 	vmlinuzFiles := make([]string, 0, 64)

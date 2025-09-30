@@ -1,15 +1,16 @@
 package library
 
 import (
+	"chaos-agent/shared/types"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
-	"encoding/binary"
-	"chaos-agent/shared/types"
 )
 
 // EncryptMessage encrypts the message using AES-GCM with the provided encryption key
@@ -51,10 +52,12 @@ func EncryptMessage(message string, encryptionKey string) ([]byte, error) {
 	// Encrypt the message using AES-GCM
 	ciphertext := aesgcm.Seal(nil, nonce, []byte(message), nil)
 
-	// Prepend the nonce to the ciphertext (nonce is required for decryption)
-	encryptedMessage := append(nonce, ciphertext...)
-	fmt.Printf("🔒 Encrypted message (hex): %s\n", hex.EncodeToString(encryptedMessage))
+	// Prepend the nonce to the ciphertext into a new buffer
+	encryptedMessage := make([]byte, 0, len(nonce)+len(ciphertext))
+	encryptedMessage = append(encryptedMessage, nonce...)
+	encryptedMessage = append(encryptedMessage, ciphertext...)
 
+	fmt.Printf("🔒 Encrypted message (hex): %s\n", hex.EncodeToString(encryptedMessage))
 
 	// Log the nonce and ciphertext for debugging
 	fmt.Printf("🔑 Nonce: %x\n", nonce)
@@ -77,11 +80,15 @@ func SendRawMessage(ip string, port int, message string, encryptionKey string) e
 	if err != nil {
 		return fmt.Errorf("failed to connect to %s: %v", addr, err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("conn close ssh client: %v", err)
+		}
+	}()
 
 	// 👇 Add 4-byte length prefix
 	msgLen := uint32(len(encryptedMessage))
-		lenBuf := make([]byte, 4)
+	lenBuf := make([]byte, 4)
 	binary.BigEndian.PutUint32(lenBuf, msgLen)
 
 	// 👇 Write length first, then the message

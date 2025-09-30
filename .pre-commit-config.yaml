@@ -1,10 +1,12 @@
 repos:
-  - repo: https://github.com/golangci/golangci-lint
-    rev: v2.5.0
+  - repo: local
     hooks:
-      - id: golangci-lint
-        args: ["--config=.golangci.yml", "--fix", "--timeout=2m", "monitor/go/...", "monitor/go/shared/..."]  # --fix lets it auto-format (gofmt/goimports) when possible
-        pass_filenames: false  # we specify paths via args, not filenames
+      - id: golangci-lint-in-module
+        name: golangci-lint (monitor/go)
+        language: system
+        pass_filenames: false
+        entry: bash -lc 'cd monitor/go && golangci-lint run --config=../../.golangci.yml --fix --timeout=2m ./...'
+
 
 #  - repo: https://github.com/pre-commit/pre-commit-hooks
 #    rev: v6.0.0

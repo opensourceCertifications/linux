@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher" // Import cipher package for AES-GCM
 	"crypto/rand"
@@ -17,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -138,7 +140,7 @@ func runRemoteBinary(ip string, config *ssh.ClientConfig, remotePath string) err
 	if err != nil {
 		return fmt.Errorf("ssh dial failed: %w", err)
 	}
-	//defer client.Close()
+	// defer client.Close()
 	defer func() {
 		if err := client.Close(); err != nil && !errors.Is(err, io.EOF) {
 			log.Printf("client close ssh client: %v", err)
@@ -162,74 +164,167 @@ func runRemoteBinary(ip string, config *ssh.ClientConfig, remotePath string) err
 	return session.Run(cmd)
 }
 
-func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPath string) error {
+// func runRemoteCommandWithListener(ip string, config *ssh.ClientConfig, scriptPath string) error {
+//	for {
+//		// Step 1: Find random open port
+//		listener, err := net.Listen("tcp", ":0") // Open a TCP port and start listening
+//		if err != nil {
+//			return fmt.Errorf("failed to open listener: %v", err)
+//		}
+//		// defer listener.Close()
+//		defer func() {
+//			if err := listener.Close(); err != nil {
+//				log.Printf("listener close ssh client: %v", err)
+//			}
+//		}()
+//
+//		// Extract the actual port chosen
+//		addr := listener.Addr().(*net.TCPAddr)
+//		port := addr.Port
+//		token, err := generateToken(16) // 16 bytes = 32 hex chars
+//		if err != nil {
+//			return fmt.Errorf("failed to generate token: %v", err)
+//		}
+//		fmt.Printf("🔑 Generated token: %s\n", token)
+//		fmt.Printf("📡 Listening on port %d\n", port)
+//
+//		// Generate the encryption key
+//		encryptionKey, err := GenerateEncryptionKey(32) // 32 bytes = 64 hex chars
+//		fmt.Printf("🔑 Generated encryption key: %s\n", encryptionKey)
+//		if err != nil {
+//			return fmt.Errorf("failed to generate encryption key: %v", err)
+//		}
+//		monitorIP := os.Getenv("MONITOR_ADDRESS")
+//		localBin, err := compileChaosBinary(scriptPath, monitorIP, port, token, encryptionKey)
+//		if err != nil {
+//			return err
+//		}
+//
+//		// Ship it to testenv and start it
+//		const remoteBin = "/tmp/break_tool"
+//		if err := scpToRemote(ip, localBin, remoteBin); err != nil {
+//			return fmt.Errorf("scp failed: %w", err)
+//		}
+//		if err := runRemoteBinary(ip, config, remoteBin); err != nil {
+//			return fmt.Errorf("remote start failed: %w", err)
+//		}
+//
+//		// Step 2: Keep accepting connections in a loop
+//		for {
+//			conn, err := listener.Accept() // Accept an incoming connection
+//			if err != nil {
+//				fmt.Fprintf(os.Stderr, "Failed to accept connection: %v\n", err)
+//				continue // Continue waiting for new connections even if one fails
+//			}
+//			// Handle the connection in a separate goroutine so it doesn't block other connections
+//			opperation := handleChaosConnection(conn, token, encryptionKey)
+//			if opperation == "complete" {
+//				fmt.Println("✅ Operation completed successfully, exiting listener.")
+//				// listener.Close()
+//				if err := listener.Close(); err != nil {
+//					log.Printf("listener close ssh client: %v", err)
+//				}
+//				return nil // Exit the listener loop if operation is complete
+//			}
+//		}
+//	}
+//}
+
+// closeQuietly is just to satisfy errcheck on Close().
+func closeQuietly(c io.Closer, label string) {
+	if err := c.Close(); err != nil && !errors.Is(err, io.EOF) {
+		log.Printf("close %s: %v", label, err)
+	}
+}
+
+// setupListenerAndSecrets opens a random TCP port and creates the token+encKey.
+func setupListenerAndSecrets() (ln net.Listener, port int, token string, encKey string, err error) {
+	ln, err = net.Listen("tcp", ":0")
+	if err != nil {
+		return nil, 0, "", "", fmt.Errorf("failed to open listener: %w", err)
+	}
+	addr := ln.Addr().(*net.TCPAddr)
+	port = addr.Port
+
+	token, err = generateToken(16) // 16 bytes = 32 hex
+	if err != nil {
+		closeQuietly(ln, "listener")
+		return nil, 0, "", "", fmt.Errorf("failed to generate token: %w", err)
+	}
+	fmt.Printf("🔑 Generated token: %s\n", token)
+	fmt.Printf("📡 Listening on port %d\n", port)
+
+	encKey, err = GenerateEncryptionKey(32) // 32 bytes = 64 hex
+	if err != nil {
+		closeQuietly(ln, "listener")
+		return nil, 0, "", "", fmt.Errorf("failed to generate encryption key: %w", err)
+	}
+	fmt.Printf("🔑 Generated encryption key: %s\n", encKey)
+
+	return ln, port, token, encKey, nil
+}
+
+// deployRemote compiles the chaos binary, scp’s it, and starts it via SSH.
+func deployRemote(ip string, cfg *ssh.ClientConfig, srcPath, monitorIP string, port int, token, encKey string) error {
+	localBin, err := compileChaosBinary(srcPath, monitorIP, port, token, encKey)
+	if err != nil {
+		return err
+	}
+	const remoteBin = "/tmp/break_tool"
+	if err := scpToRemote(ip, localBin, remoteBin); err != nil {
+		return fmt.Errorf("scp failed: %w", err)
+	}
+	if err := runRemoteBinary(ip, cfg, remoteBin); err != nil {
+		return fmt.Errorf("remote start failed: %w", err)
+	}
+	return nil
+}
+
+// acceptLoop serves connections until the operation completes.
+func acceptLoop(ln net.Listener, token, encKey string) (done bool, err error) {
 	for {
-		// Step 1: Find random open port
-		listener, err := net.Listen("tcp", ":0") // Open a TCP port and start listening
+		conn, err := ln.Accept()
 		if err != nil {
-			return fmt.Errorf("failed to open listener: %v", err)
+			fmt.Fprintf(os.Stderr, "Failed to accept connection: %v\n", err)
+			continue
 		}
-		//defer listener.Close()
-		defer func() {
-			if err := listener.Close(); err != nil {
-				log.Printf("listener close ssh client: %v", err)
-			}
-		}()
-
-		// Extract the actual port chosen
-		addr := listener.Addr().(*net.TCPAddr)
-		port := addr.Port
-		token, err := generateToken(16) // 16 bytes = 32 hex chars
-		if err != nil {
-			return fmt.Errorf("failed to generate token: %v", err)
-		}
-		fmt.Printf("🔑 Generated token: %s\n", token)
-		fmt.Printf("📡 Listening on port %d\n", port)
-
-		// Generate the encryption key
-		encryptionKey, err := GenerateEncryptionKey(32) // 32 bytes = 64 hex chars
-		fmt.Printf("🔑 Generated encryption key: %s\n", encryptionKey)
-		if err != nil {
-			return fmt.Errorf("failed to generate encryption key: %v", err)
-		}
-		monitorIP := os.Getenv("MONITOR_ADDRESS")
-		localBin, err := compileChaosBinary(scriptPath, monitorIP, port, token, encryptionKey)
-		if err != nil {
-			return err
-		}
-
-		// Ship it to testenv and start it
-		const remoteBin = "/tmp/break_tool"
-		if err := scpToRemote(ip, localBin, remoteBin); err != nil {
-			return fmt.Errorf("scp failed: %w", err)
-		}
-		if err := runRemoteBinary(ip, config, remoteBin); err != nil {
-			return fmt.Errorf("remote start failed: %w", err)
-		}
-
-		// Step 2: Keep accepting connections in a loop
-		for {
-			conn, err := listener.Accept() // Accept an incoming connection
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to accept connection: %v\n", err)
-				continue // Continue waiting for new connections even if one fails
-			}
-			// Handle the connection in a separate goroutine so it doesn't block other connections
-			opperation := handleChaosConnection(conn, token, encryptionKey)
-			if opperation == "complete" {
-				fmt.Println("✅ Operation completed successfully, exiting listener.")
-				//listener.Close()
-				if err := listener.Close(); err != nil {
-					log.Printf("listener close ssh client: %v", err)
-				}
-				return nil // Exit the listener loop if operation is complete
-			}
+		// handleChaosConnection closes conn internally (you already defer there).
+		op := handleChaosConnection(conn, token, encKey)
+		if op == "complete" {
+			fmt.Println("✅ Operation completed successfully, exiting listener.")
+			return true, nil
 		}
 	}
 }
 
+// Orchestrator: now short and readable.
+func runRemoteCommandWithListener(ip string, cfg *ssh.ClientConfig, scriptPath string) error {
+	for {
+		ln, port, token, encKey, err := setupListenerAndSecrets()
+		if err != nil {
+			return err
+		}
+
+		monitorIP := os.Getenv("MONITOR_ADDRESS")
+		if err := deployRemote(ip, cfg, scriptPath, monitorIP, port, token, encKey); err != nil {
+			closeQuietly(ln, "listener")
+			return err
+		}
+
+		done, err := acceptLoop(ln, token, encKey)
+		closeQuietly(ln, "listener")
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+	}
+}
+
+// nolint:cyclop // TODO: split into small handlers (general, report, variable, opComplete)
 func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey string) string {
-	//defer conn.Close()
+	// defer conn.Close()
 	defer func() {
 		if err := conn.Close(); err != nil {
 			log.Printf("conn close ssh client: %v", err)
@@ -346,13 +441,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 			// Step 2: Append value (avoid duplicates if you like)
 			list := vars[key]
 			// Optional: deduplicate
-			alreadyExists := false
-			for _, v := range list {
-				if v == value {
-					alreadyExists = true
-					break
-				}
-			}
+			alreadyExists := slices.Contains(list, value)
 			if !alreadyExists {
 				vars[key] = append(list, value)
 			}
@@ -410,17 +499,17 @@ func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) 
 	//// keeping this code here and commented to make debugging easier as we go ////
 	//// I'll probably remove it after we release version 1					 ////
 	////////////////////////////////////////////////////////////////////////////////
-	//tagCopy := ciphertext[len(ciphertext)-16:]
-	//ciphertextCopy := ciphertext[:len(ciphertext)-16] // Remove the tag from ciphertext
+	// tagCopy := ciphertext[len(ciphertext)-16:]
+	// ciphertextCopy := ciphertext[:len(ciphertext)-16] // Remove the tag from ciphertext
 
 	// Log the nonce and ciphertext for debugging
-	//fmt.Printf("🔑 Nonce: %x\n", nonce)
-	//fmt.Printf("🔒 Ciphertext: %x\n", ciphertextCopy)
-	//fmt.Printf("🔑 encryptedData: %s\n", encryptedData[:12])
-	//fmt.Printf("🔒 Tag: %x\n", tagCopy)
-	//fmt.Printf("🔑 Nonce (%d bytes): %x\n", len(nonce), nonce)
-	//fmt.Printf("🔒 Ciphertext (%d bytes): %x\n", len(ciphertextCopy), ciphertextCopy)
-	//fmt.Printf("🔐 Tag (%d bytes): %x\n", len(tagCopy), tagCopy)
+	// fmt.Printf("🔑 Nonce: %x\n", nonce)
+	// fmt.Printf("🔒 Ciphertext: %x\n", ciphertextCopy)
+	// fmt.Printf("🔑 encryptedData: %s\n", encryptedData[:12])
+	// fmt.Printf("🔒 Tag: %x\n", tagCopy)
+	// fmt.Printf("🔑 Nonce (%d bytes): %x\n", len(nonce), nonce)
+	// fmt.Printf("🔒 Ciphertext (%d bytes): %x\n", len(ciphertextCopy), ciphertextCopy)
+	// fmt.Printf("🔐 Tag (%d bytes): %x\n", len(tagCopy), tagCopy)
 	////////////////////////////////////////////////////////////////////////////////
 
 	// Initialize AES-GCM cipher block
@@ -540,12 +629,5 @@ func writeJSONAtomic(path string, v any) error {
 
 // bytesTrimSpace avoids importing strings just to trim
 func bytesTrimSpace(b []byte) []byte {
-	start, end := 0, len(b)
-	for start < end && (b[start] == ' ' || b[start] == '\n' || b[start] == '\r' || b[start] == '\t') {
-		start++
-	}
-	for end > start && (b[end-1] == ' ' || b[end-1] == '\n' || b[end-1] == '\r' || b[end-1] == '\t') {
-		end--
-	}
-	return b[start:end]
+	return bytes.TrimSpace(b)
 }

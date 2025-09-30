@@ -1,10 +1,10 @@
 package library
 
 import (
+	"log"
 	"math/rand"
 	"os"
 	"time"
-	"log"
 )
 
 func CorruptFile(path string, percent int) (status string, err error) {
