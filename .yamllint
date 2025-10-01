@@ -10,4 +10,3 @@ rules:
   truthy:
     allowed-values: ['true', 'false', 'yes', 'no']  # keep Ansible-friendly if you like
     level: warning
-
