@@ -1,5 +1,5 @@
 ---
-version: 2
+version: "2"
 
 run:
   timeout: 2m
@@ -21,7 +21,7 @@ linters:
 # NEW in v2: formatters live here (not under linters)
 formatters:
   enable:
-    - goimports        # formats + organizes imports
+    - goimports # formats + organizes imports
     # - gofmt          # optional; redundant if goimports is enabled
 
 formatters-settings:

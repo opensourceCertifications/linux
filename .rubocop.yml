@@ -1,0 +1,8 @@
+---
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.2
+
+Layout/IndentationWidth:
+  Enabled: true
+  Width: 2

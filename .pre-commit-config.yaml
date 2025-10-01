@@ -8,7 +8,6 @@ repos:
         pass_filenames: false
         entry: bash -lc 'cd monitor/go && golangci-lint run --config=../../.golangci.yml --fix --timeout=2m ./...'
 
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
@@ -45,8 +44,8 @@ repos:
     hooks:
       - id: shellcheck
         name: shellcheck (bash/sh)
-        types: [shell]   # applies to files detected as shell scripts
-        args: ["-x"]     # follow sourced files where possible
+        types: [shell] # applies to files detected as shell scripts
+        args: ["-x"] # follow sourced files where possible
 
   - repo: https://github.com/scop/pre-commit-shfmt
     rev: v3.12.0-2
@@ -54,4 +53,22 @@ repos:
       - id: shfmt
         name: shfmt (format shell scripts)
         types: [shell]
-        args: ["-i", "2", "-sr", "-w"]  # 2-space indent, simplify, write in place
+        args: ["-i", "0", "-sr", "-w"] # 0 => use tabs, keep simplified redirects, write in place
+
+  # .pre-commit-config.yaml
+  - repo: local
+    hooks:
+      - id: prettier-yaml
+        name: prettier (YAML)
+        language: system
+        entry: bash -c './node_modules/.bin/prettier --parser=yaml --write "$@"' --
+        files: '\.(yml|yaml)$'
+        exclude: '^monitor/ansible/(ansible_vars\.yml|results\.yml)$'
+        pass_filenames: true
+#  - repo: https://github.com/pre-commit/mirrors-rubocop
+#    rev: v1.66.1
+#    hooks:
+#      - id: rubocop
+#        name: rubocop (Vagrantfile, 2-space indent)
+#        files: ^Vagrantfile$
+#        args: ["-A"]  # autocorrect

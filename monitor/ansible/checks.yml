@@ -38,7 +38,7 @@
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/ansible_vars.yml"
         dest: /tmp/ansible_vars.yml
-        mode: '0600'
+        mode: "0600"
 
     - name: Initialize /tmp/results.yml to empty JSON
       ansible.builtin.copy:
@@ -46,8 +46,7 @@
         content: "{}\n"
         owner: root
         group: root
-        mode: '0644'
-
+        mode: "0644"
 
     - name: Run all check task files on testenv
       block:
@@ -56,7 +55,7 @@
           vars:
             # Handy per-check vars you can use inside each task file
             _cid: "{{ item | basename | regex_replace('\\.(yml|yaml)$', '') }}"
-            _rad: "/tmp/{{ item | basename | regex_replace('\\.(yml|yaml)$','') }}"
+            _rad: "/tmp/{{ item | basename | regex_replace('\\.(yml|yaml)$', '') }}"
           loop: "{{ hostvars['localhost'].check_playbooks }}"
           loop_control:
             label: "{{ item | basename }}"

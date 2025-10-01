@@ -24,34 +24,35 @@ Data flow
 
 ```
 project/
-├── README.md
-├── Vagrantfile
-├── ansible
-│   ├── ansible_vars.yml
-│   ├── checks
-│   │   └── verify_restored.yml
-│   ├── checks.yml
-│   ├── library
-│   │   ├── append_to_results.yml
-│   │   └── check_boot_item.yml
-│   └── results.yml
-├── design.md
+.
 ├── monitor
-│   ├── breaks
-│   │   └── broken_boot_loader.go
-│   ├── go.mod
-│   ├── go.sum
-│   ├── monitor_logic.go
-│   ├── shared
-│   │   ├── go.mod
-│   │   ├── library
-│   │   │   ├── corrupt_file.go
-│   │   │   └── messages.go
-│   │   └── types
-│   │       └── shared_types.go
-│   └── utils
-│       └── append_report.json.yml
-└── vagrant_script.sh
+│   ├── ansible
+│   │   ├── ansible_vars.yml
+│   │   ├── checks
+│   │   │   └── verify_restored.yml
+│   │   ├── checks.yml
+│   │   ├── library
+│   │   │   ├── append_to_results.yml
+│   │   │   └── boot_checker.sh
+│   │   └── results.yml
+│   └── go
+│       ├── breaks
+│       │   ├── broken_boot_loader.go
+│       │   └── prompt.md
+│       ├── checks
+│       ├── go.mod
+│       ├── go.sum
+│       ├── monitor_logic.go
+│       ├── nohup.out
+│       ├── shared
+│       │   ├── go.mod.disable
+│       │   ├── library
+│       │   │   ├── corrupt_file.go
+│       │   │   └── messages.go
+│       │   └── types
+│       │       └── shared_types.go
+│       └── transfer
+├── README.md
 ```
 
 ### Key pieces

@@ -5,9 +5,9 @@
 - name: Ensure minimal tools are present
   ansible.builtin.package:
     name:
-      - dracut               # lsinitrd for initramfs validation
-      - grub2-tools-minimal  # grub2-editenv
-      - file                 # file(1) type detection
+      - dracut # lsinitrd for initramfs validation
+      - grub2-tools-minimal # grub2-editenv
+      - file # file(1) type detection
     state: present
 
 - name: Install bootcheck script
@@ -37,7 +37,7 @@
     argv: ["/usr/local/bin/bootcheck", "{{ item }}"]
   register: checks
   changed_when: false
-  failed_when: false   # don't fail the play; we bucket instead
+  failed_when: false # don't fail the play; we bucket instead
   loop: "{{ boot_targets }}"
   loop_control:
     label: "{{ item }}"

@@ -23,7 +23,7 @@ GO_URL="https://go.dev/dl/${GO_TGZ}"
 
 # Download to /tmp (idempotent-friendly: only if not already present)
 if [[ ! -f "/tmp/${GO_TGZ}" ]]; then
-  wget -P /tmp/ "${GO_URL}"
+	wget -P /tmp/ "${GO_URL}"
 fi
 
 # Remove any previous /usr/local/go to avoid mixing versions (optional, uncomment if desired)

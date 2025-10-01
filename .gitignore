@@ -20,3 +20,5 @@ monitor/ansible/results.yml
 .cache
 
 .bash_history
+
+node_modules/

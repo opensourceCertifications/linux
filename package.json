@@ -1,0 +1,24 @@
+{
+  "name": "linux",
+  "version": "1.0.0",
+  "description": "> Two-VM, Go + Ansible–driven lab for hands‑on Linux troubleshooting and recovery.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/opensourceCertifications/linux.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/opensourceCertifications/linux/issues"
+  },
+  "homepage": "https://github.com/opensourceCertifications/linux#readme",
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}
