@@ -8,12 +8,12 @@ repos:
         entry: bash -lc 'cd monitor/go && golangci-lint run --config=../../.golangci.yml --fix --timeout=2m ./...'
 
 
-#  - repo: https://github.com/pre-commit/pre-commit-hooks
-#    rev: v6.0.0
-#    hooks:
-#      - id: end-of-file-fixer
-#      - id: trailing-whitespace
-#
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
 #  - repo: local
 #    hooks:
 #      - id: vagrant-validate
