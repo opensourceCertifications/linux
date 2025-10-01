@@ -50,7 +50,7 @@ is_efi=0
 
 # initramfs: lsinitrd should succeed regardless of compression
 # initramfs
-if (( is_initramfs )); then
+if ((is_initramfs)); then
   if ! have lsinitrd; then
     err "lsinitrd not found"
     corrupt
@@ -64,12 +64,12 @@ fi
 
 # kernel image: `file` must say "linux kernel"
 # kernel image
-if (( is_kernel )); then
+if ((is_kernel)); then
   if ! have file; then
     err "file(1) not found"
     corrupt
   fi
-  desc="$(file -b -- "$path" 2>/dev/null || true)"
+  desc="$(file -b -- "$path" 2> /dev/null || true)"
   shopt -s nocasematch
   if [[ "$desc" =~ linux\ kernel ]]; then
     clean
@@ -84,7 +84,7 @@ if ((is_grubenv)); then
     clean
   else
     # grubenv fallback header
-    header="$(head -n1 -- "$path" 2>/dev/null || true)"
+    header="$(head -n1 -- "$path" 2> /dev/null || true)"
     if [[ "$header" == "GRUB Environment Block" ]]; then
       clean
     else
@@ -101,20 +101,20 @@ fi
 # BLS entry: must include title, linux, initrd keys
 if ((is_bls)); then
   grep -Eq '^title' -- "$path" &&
-  grep -Eq '^linux' -- "$path" &&
-  grep -Eq '^initrd' -- "$path" && clean
+    grep -Eq '^linux' -- "$path" &&
+    grep -Eq '^initrd' -- "$path" && clean
 else
   corrupt
 fi
 
 # EFI binaries: `file` must report EFI application
 # EFI binaries
-if (( is_efi )); then
+if ((is_efi)); then
   if ! have file; then
     err "file(1) not found"
     corrupt
   fi
-  desc="$(file -b -- "$path" 2>/dev/null || true)"
+  desc="$(file -b -- "$path" 2> /dev/null || true)"
   shopt -s nocasematch
   if [[ "$desc" =~ efi\ application ]]; then
     clean
@@ -126,7 +126,7 @@ fi
 # Fallback: if file is RPM-owned, verify just that file; else treat as corrupted
 # RPM-owned fallback
 if rpm -qf --quiet -- "$path"; then
-  out="$(rpm -Vf -- "$path" 2>/dev/null || true)"
+  out="$(rpm -Vf -- "$path" 2> /dev/null || true)"
   if [[ -z "$out" ]]; then
     clean
   else
