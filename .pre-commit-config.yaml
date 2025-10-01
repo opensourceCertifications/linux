@@ -1,3 +1,4 @@
+---
 repos:
   - repo: local
     hooks:
@@ -14,25 +15,25 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
 
-#  - repo: local
-#    hooks:
-#      - id: vagrant-validate
-#        name: vagrant validate
-#        entry: vagrant validate --ignore-provider
-#        language: system
-#        pass_filenames: false
-#        files: ^Vagrantfile$
-#
-#  - repo: https://github.com/ansible/ansible-lint
-#    rev: v25.9.0
-#    hooks:
-#      - id: ansible-lint
-#        name: ansible-lint (playbooks & roles)
-#        files: \.(yml|yaml)$
-#        additional_dependencies:
-#          - ansible-core>=2.15
-#          - yamllint>=1.33.0
-#
+  - repo: local
+    hooks:
+      - id: vagrant-validate
+        name: vagrant validate
+        entry: vagrant validate --ignore-provider
+        language: system
+        pass_filenames: false
+        files: ^Vagrantfile$
+
+  - repo: https://github.com/ansible/ansible-lint
+    rev: v25.9.0
+    hooks:
+      - id: ansible-lint
+        name: ansible-lint (playbooks & roles)
+        files: ^monitor/ansible/.*\.(yml|yaml)$
+        additional_dependencies:
+          - ansible-core>=2.15
+          - yamllint>=1.33.0
+
 #  - repo: https://github.com/adrienverge/yamllint
 #    rev: v1.37.1
 #    hooks:

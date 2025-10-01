@@ -1,6 +1,6 @@
 ---
 # Play 1: create dynamic host group on the monitor
-- name: add host and vars
+- name: Add host and vars
   hosts: localhost
   gather_facts: false
   vars_files:
@@ -8,9 +8,9 @@
   vars:
     testenv_address: "{{ lookup('env','TESTENV_ADDRESS') }}"
   tasks:
-    - name: add testenv_address to 'testenv'
+    - name: Add testenv_address to 'testenv'
       ansible.builtin.add_host:
-        name: "{{ lookup('env','TESTENV_ADDRESS') }}"
+        name: "{{ lookup('env', 'TESTENV_ADDRESS') }}"
         groups: testenv
 
     - name: Collect all check playbooks (yml + yaml)
@@ -55,7 +55,7 @@
           ansible.builtin.include_tasks: "{{ item }}"
           vars:
             # Handy per-check vars you can use inside each task file
-            _cid: "{{ item | basename | regex_replace('\\.(yml|yaml)$','') }}"
+            _cid: "{{ item | basename | regex_replace('\\.(yml|yaml)$', '') }}"
             _rad: "/tmp/{{ item | basename | regex_replace('\\.(yml|yaml)$','') }}"
           loop: "{{ hostvars['localhost'].check_playbooks }}"
           loop_control:
