@@ -1,3 +1,8 @@
+// Description: This Go program connects to a remote VM via SSH, deploys a chaos testing binary,
+// and listens for encrypted messages from the binary to log chaos events and update configuration files.
+// It uses AES-GCM for encryption and handles various message types including general logs, chaos reports, variable updates, and operation completion signals.
+// It ensures secure communication using a randomly generated token and encryption key for each session.
+// It also compiles the chaos binary with embedded configuration parameters and manages its lifecycle on the remote VM.
 package main
 
 import (
@@ -394,9 +399,8 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 			if msg.TokenCheck {
 				fmt.Println("✅ Operation completed, continuing to listen for new messages.")
 				return "complete"
-			} else {
-				fmt.Println("❌ Operation_complete received but token check failed")
 			}
+			fmt.Println("❌ Operation_complete received but token check failed")
 
 		case "general":
 			// just print the message

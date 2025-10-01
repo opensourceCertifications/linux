@@ -66,6 +66,7 @@ func EncryptMessage(message string, encryptionKey string) ([]byte, error) {
 	return encryptedMessage, nil
 }
 
+// SendRawMessage sends an encrypted message to the specified IP and port using a TCP connection
 func SendRawMessage(ip string, port int, message string, encryptionKey string) error {
 	// Encrypt the message before sending it
 	fmt.Printf("🔒 Encrypting message: %s\n", message)
@@ -105,6 +106,7 @@ func SendRawMessage(ip string, port int, message string, encryptionKey string) e
 	return nil
 }
 
+// SendMessage prepares and sends a structured message to the monitoring server
 func SendMessage(ip string, port int, status string, message string, token string, encryptionKey string) {
 	fmt.Printf("🔒 Preparing to send message to %s:%d\n", ip, port)
 	// Prepare the JSON payload using the shared ChaosMessage type

@@ -1,3 +1,4 @@
+// Package types defines shared data structures used across the application.
 package types
 
 type ChaosMessage struct {

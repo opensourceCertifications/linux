@@ -1,3 +1,4 @@
+// Package library provides functions to corrupt files by flipping bits and adding an offset.
 package library
 
 import (
@@ -7,7 +8,35 @@ import (
 	"time"
 )
 
-func CorruptFile(path string, percent int) (status string, err error) {
+func clampPercent(p int) int {
+	if p <= 0 || p > 100 {
+		return 100
+	}
+	return p
+}
+
+func corruptAll(data []byte, offset byte) {
+	for i := range data {
+		data[i] = (data[i] ^ 0xFF) + offset
+	}
+}
+
+func corruptSample(data []byte, percent int, offset byte, r *rand.Rand) {
+	n := len(data)
+	k := n * percent / 100
+	if k == 0 && percent > 0 {
+		k = 1
+	}
+	perm := r.Perm(n)
+	for i := 0; i < k; i++ {
+		idx := perm[i]
+		data[idx] = (data[idx] ^ 0xFF) + offset
+	}
+}
+
+// CorruptFile corrupts a file at the given path by flipping bits and adding an offset to a percentage of its bytes.
+// It returns the path of the corrupted file or an error if something goes wrong.
+func CorruptFile(path string, percent int) (string, error) {
 	// Read file
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -16,7 +45,8 @@ func CorruptFile(path string, percent int) (status string, err error) {
 	}
 	if len(data) == 0 {
 		log.Printf("file %s is empty, nothing to corrupt", path)
-		return "", err
+		// Return a real error instead of nil
+		return "", os.ErrInvalid
 	}
 
 	// Save original modtime
@@ -27,34 +57,16 @@ func CorruptFile(path string, percent int) (status string, err error) {
 	}
 	origModTime := info.ModTime()
 
-	// Normalize percent -> [1..100]; default to 100 if out of range
-	if percent <= 0 || percent > 100 {
-		percent = 100
-	}
-
-	// Pick one random offset (0–255) and seed RNG
-	rand.Seed(time.Now().UnixNano())
-	offset := byte(rand.Intn(256))
+	// Normalize percent and set up local RNG (no deprecated rand.Seed)
+	percent = clampPercent(percent)
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	offset := byte(r.Intn(256))
 
 	// Corrupt bytes
 	if percent == 100 {
-		// Fast path: all bytes
-		for i, b := range data {
-			data[i] = (b ^ 0xFF) + offset
-		}
+		corruptAll(data, offset)
 	} else {
-		// Sample ~percent% unique positions without replacement
-		n := len(data)
-		k := n * percent / 100
-		if k == 0 && percent > 0 { // ensure we touch at least 1 byte for tiny files
-			k = 1
-		}
-		// Get a random permutation of indices and take first k
-		perm := rand.Perm(n)
-		for i := 0; i < k; i++ {
-			idx := perm[i]
-			data[idx] = (data[idx] ^ 0xFF) + offset
-		}
+		corruptSample(data, percent, offset, r)
 	}
 
 	// Write back
@@ -70,5 +82,6 @@ func CorruptFile(path string, percent int) (status string, err error) {
 	}
 
 	log.Printf("File %s corrupted (flip+offset, %d%% of bytes)", path, percent)
-	return
+	// Return the path as the "status" so callers have a useful value.
+	return path, nil
 }
