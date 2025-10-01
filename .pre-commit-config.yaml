@@ -65,10 +65,31 @@ repos:
         files: '\.(yml|yaml)$'
         exclude: '^monitor/ansible/(ansible_vars\.yml|results\.yml)$'
         pass_filenames: true
-#  - repo: https://github.com/pre-commit/mirrors-rubocop
-#    rev: v1.66.1
-#    hooks:
-#      - id: rubocop
-#        name: rubocop (Vagrantfile, 2-space indent)
-#        files: ^Vagrantfile$
-#        args: ["-A"]  # autocorrect
+
+  - repo: https://github.com/rubocop/rubocop
+    rev: v1.81.1 # or any current tag you prefer
+    hooks:
+      - id: rubocop
+        name: rubocop (Vagrantfile, autocorrect)
+        files: ^Vagrantfile$
+        args: ["-A", "--config", ".rubocop.yml"] # autocorrect offenses where safe
+
+  - repo: local
+    hooks:
+      # Runs only when go.mod or go.sum in monitor/go change
+      - id: go-mod-tidy
+        name: go mod tidy (monitor/go)
+        language: system
+        entry: bash -lc 'cd monitor/go && go mod tidy'
+        pass_filenames: false # we don't want pre-commit to pass file paths
+        files: ^monitor/go/(go\.mod|go\.sum)$
+        require_serial: true # this hook edits files; avoid parallel runs
+
+      # Validate Vagrantfile (you already had a similar one; keep one copy)
+      - id: vagrant-validate
+        name: Validate Vagrantfile
+        description: Runs vagrant validate to validate Vagrantfiles
+        language: system
+        entry: vagrant validate --ignore-provider
+        pass_filenames: false
+        files: ^Vagrantfile$
