@@ -1,7 +1,7 @@
 package library
 
 import (
-	"chaos-agent/shared/types"
+	datatypes "chaos-agent/shared/types"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -110,7 +110,7 @@ func SendRawMessage(ip string, port int, message string, encryptionKey string) e
 func SendMessage(ip string, port int, status string, message string, token string, encryptionKey string) {
 	fmt.Printf("🔒 Preparing to send message to %s:%d\n", ip, port)
 	// Prepare the JSON payload using the shared ChaosMessage type
-	msg := types.ChaosMessage{
+	msg := datatypes.ChaosMessage{
 		Status:  status,
 		Message: message,
 		Token:   token,

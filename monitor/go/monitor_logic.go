@@ -31,7 +31,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"chaos-agent/shared/types"
+	datatypes "chaos-agent/shared/types"
 )
 
 func main() {
@@ -374,7 +374,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		}
 
 		// Step 4: Decode JSON
-		var msg types.ChaosMessage
+		var msg datatypes.ChaosMessage
 		if err := json.Unmarshal(plaintext, &msg); err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON after decryption: %s\n", plaintext)
 			continue
@@ -540,7 +540,7 @@ func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error) 
 
 // AppendChaosToReport appends a ChaosMessage under its token key
 // into $HOME/report.log.json. The JSON file is a map[string][]ChaosMessage.
-func AppendChaosToReport(msg types.ChaosMessage) error {
+func AppendChaosToReport(msg datatypes.ChaosMessage) error {
 	// the file size could grow large over time, but for simplicity
 	// we keep it simple and read the whole file each time.
 	home, err := os.UserHomeDir()
@@ -573,7 +573,7 @@ func AppendChaosToReport(msg types.ChaosMessage) error {
 
 // AppendChaosLine parses a single JSON line and appends it using AppendChaosToReport.
 func AppendChaosLine(line []byte) error {
-	var msg types.ChaosMessage
+	var msg datatypes.ChaosMessage
 	if err := json.Unmarshal(line, &msg); err != nil {
 		return fmt.Errorf("parse chaos line: %w", err)
 	}
@@ -599,20 +599,20 @@ func ensureJSONFile(path string) error {
 	return statErr
 }
 
-func readReport(path string) (map[string][]types.ChaosMessage, error) {
+func readReport(path string) (map[string][]datatypes.ChaosMessage, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	// Treat empty as {}
 	if len(bytesTrimSpace(data)) == 0 {
-		return map[string][]types.ChaosMessage{}, nil
+		return map[string][]datatypes.ChaosMessage{}, nil
 	}
-	var logs map[string][]types.ChaosMessage
+	var logs map[string][]datatypes.ChaosMessage
 	if err := json.Unmarshal(data, &logs); err != nil {
 		// If the file is corrupt, back it up and start fresh
 		_ = os.WriteFile(path+".corrupt.bak", data, 0o644)
-		logs = map[string][]types.ChaosMessage{}
+		logs = map[string][]datatypes.ChaosMessage{}
 	}
 	return logs, nil
 }
