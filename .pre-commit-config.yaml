@@ -34,20 +34,20 @@ repos:
           - ansible-core>=2.15
           - yamllint>=1.33.0
 
-#  - repo: https://github.com/adrienverge/yamllint
-#    rev: v1.37.1
-#    hooks:
-#      - id: yamllint
-#        name: yamllint (all YAML)
-#        files: \.(yml|yaml)$
-#  - repo: https://github.com/shellcheck-py/shellcheck-py
-#    rev: v0.11.0.1
-#    hooks:
-#      - id: shellcheck
-#        name: shellcheck (bash/sh)
-#        types: [shell]   # applies to files detected as shell scripts
-#        args: ["-x"]     # follow sourced files where possible
-#
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+        name: yamllint (all YAML)
+        files: \.(yml|yaml)$
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        name: shellcheck (bash/sh)
+        types: [shell]   # applies to files detected as shell scripts
+        args: ["-x"]     # follow sourced files where possible
+
 #  - repo: https://github.com/scop/pre-commit-shfmt
 #    rev: v3.12.0-2
 #    hooks:

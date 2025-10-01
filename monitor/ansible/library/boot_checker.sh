@@ -49,23 +49,33 @@ is_efi=0
 # ----- Probes (authoritative, read-only) -----
 
 # initramfs: lsinitrd should succeed regardless of compression
-if ((is_initramfs)); then
+# initramfs
+if (( is_initramfs )); then
   if ! have lsinitrd; then
     err "lsinitrd not found"
     corrupt
   fi
-  lsinitrd "$path" > /dev/null 2>&1 && clean || corrupt
+  if lsinitrd "$path" > /dev/null 2>&1; then
+    clean
+  else
+    corrupt
+  fi
 fi
 
 # kernel image: `file` must say "linux kernel"
-if ((is_kernel)); then
+# kernel image
+if (( is_kernel )); then
   if ! have file; then
     err "file(1) not found"
     corrupt
   fi
-  desc="$(file -b -- "$path" 2> /dev/null || true)"
+  desc="$(file -b -- "$path" 2>/dev/null || true)"
   shopt -s nocasematch
-  [[ "$desc" =~ linux\ kernel ]] && clean || corrupt
+  if [[ "$desc" =~ linux\ kernel ]]; then
+    clean
+  else
+    corrupt
+  fi
 fi
 
 # grubenv: grub2-editenv list OK, or header line matches
@@ -73,9 +83,13 @@ if ((is_grubenv)); then
   if have grub2-editenv && grub2-editenv "$path" list > /dev/null 2>&1; then
     clean
   else
-    # Fallback: header must be 'GRUB Environment Block'
-    header="$(head -n1 -- "$path" 2> /dev/null || true)"
-    [[ "$header" == "GRUB Environment Block" ]] && clean || corrupt
+    # grubenv fallback header
+    header="$(head -n1 -- "$path" 2>/dev/null || true)"
+    if [[ "$header" == "GRUB Environment Block" ]]; then
+      clean
+    else
+      corrupt
+    fi
   fi
 fi
 
@@ -87,26 +101,37 @@ fi
 # BLS entry: must include title, linux, initrd keys
 if ((is_bls)); then
   grep -Eq '^title' -- "$path" &&
-    grep -Eq '^linux' -- "$path" &&
-    grep -Eq '^initrd' -- "$path" && clean || corrupt
+  grep -Eq '^linux' -- "$path" &&
+  grep -Eq '^initrd' -- "$path" && clean
+else
+  corrupt
 fi
 
 # EFI binaries: `file` must report EFI application
-if ((is_efi)); then
+# EFI binaries
+if (( is_efi )); then
   if ! have file; then
     err "file(1) not found"
     corrupt
   fi
-  desc="$(file -b -- "$path" 2> /dev/null || true)"
+  desc="$(file -b -- "$path" 2>/dev/null || true)"
   shopt -s nocasematch
-  [[ "$desc" =~ efi\ application ]] && clean || corrupt
+  if [[ "$desc" =~ efi\ application ]]; then
+    clean
+  else
+    corrupt
+  fi
 fi
 
 # Fallback: if file is RPM-owned, verify just that file; else treat as corrupted
+# RPM-owned fallback
 if rpm -qf --quiet -- "$path"; then
-  # rpm -Vf prints nothing when the *file* is pristine
-  out="$(rpm -Vf -- "$path" 2> /dev/null || true)"
-  [[ -z "$out" ]] && clean || corrupt
+  out="$(rpm -Vf -- "$path" 2>/dev/null || true)"
+  if [[ -z "$out" ]]; then
+    clean
+  else
+    corrupt
+  fi
 else
   err "unknown type and not RPM-owned: $path"
   corrupt
