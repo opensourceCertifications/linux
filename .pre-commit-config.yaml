@@ -93,3 +93,10 @@ repos:
         entry: vagrant validate --ignore-provider
         pass_filenames: false
         files: ^Vagrantfile$
+
+      - id: gomarkdoc
+        name: gomarkdoc (generate package READMEs)
+        language: system
+        pass_filenames: false
+        entry: bash scripts/gen_docs.sh
+        files: ^monitor/go/.*\.go$

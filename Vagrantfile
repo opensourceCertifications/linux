@@ -97,7 +97,7 @@ Vagrant.configure('2') do |config|
     SHELL
 
     # Run any additional bootstrap as root (external script you maintain)
-    monitor.vm.provision 'shell', privileged: true, path: './monitor_script.sh'
+    monitor.vm.provision 'shell', privileged: true, path: './scripts/monitor_script.sh'
 
     # Export IPs as environment variables system-wide (available after login)
     monitor.vm.provision 'shell', privileged: true, inline: <<-SHELL
