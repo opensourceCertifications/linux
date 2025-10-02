@@ -101,15 +101,9 @@ repos:
         entry: bash scripts/gen_docs.sh
         files: ^monitor/go/.*\.go$
 
-      - id: bash-shdoc-coverage
-        name: bash shdoc coverage
+      - id: ensure-bash-header
+        name: ensure shdoc-style header in shell scripts
         language: system
-        entry: bash scripts/check_shdoc_coverage.sh
-        types: [shell]
-        pass_filenames: true
-
-      - id: shdoc
-        name: shdoc (generate shell docs)
-        language: system
-        pass_filenames: false
-        entry: bash scripts/gen_shdoc.sh
+        entry: bash scripts/ensure_bash_header.sh
+        types: [shell] # only shell scripts
+        pass_filenames: true # let pre-commit pass the changed files

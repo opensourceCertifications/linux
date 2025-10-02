@@ -2,6 +2,7 @@
 ## bootcheck: verify a single boot-related path on RHEL-family hosts
 ## stdout: "CLEAN" or "CORRUPTED"
 ## exit:  0 = CLEAN, 1 = CORRUPTED, 2 = usage error
+#@ author: Aidan Fitzpatrick <
 
 set -euo pipefail
 
