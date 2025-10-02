@@ -100,3 +100,16 @@ repos:
         pass_filenames: false
         entry: bash scripts/gen_docs.sh
         files: ^monitor/go/.*\.go$
+
+      - id: bash-shdoc-coverage
+        name: bash shdoc coverage
+        language: system
+        entry: bash scripts/check_shdoc_coverage.sh
+        types: [shell]
+        pass_filenames: true
+
+      - id: shdoc
+        name: shdoc (generate shell docs)
+        language: system
+        pass_filenames: false
+        entry: bash scripts/gen_shdoc.sh

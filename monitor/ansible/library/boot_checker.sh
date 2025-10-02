@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# bootcheck: verify a single boot-related path on RHEL-family hosts
-# stdout: "CLEAN" or "CORRUPTED"
-# exit:  0 = CLEAN, 1 = CORRUPTED, 2 = usage error
+## bootcheck: verify a single boot-related path on RHEL-family hosts
+## stdout: "CLEAN" or "CORRUPTED"
+## exit:  0 = CLEAN, 1 = CORRUPTED, 2 = usage error
 
 set -euo pipefail
 
+## Helpers and error handling
+## Usage: err "message"
+## Prints to stderr
+## Exits with code 2 on usage error, 1 on corruption
+## Exits with 0 on clean
 err() { printf 'bootcheck: %s\n' "$*" >&2; }
+## Success and failure exits
+## Usage: clean()
 clean() {
 	printf 'CLEAN\n'
 	exit 0
 }
+## Usage: corrupt()
 corrupt() {
 	printf 'CORRUPTED\n'
 	exit 1
@@ -28,7 +36,7 @@ if [[ ! -e "$path" ]]; then
 	corrupt
 fi
 
-# Helpers
+## Helpers
 have() { command -v "$1" > /dev/null 2>&1; }
 
 # ----- Type classification by path pattern (RHEL/Alma) -----

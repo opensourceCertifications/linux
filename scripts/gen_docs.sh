@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+## gen_docs.sh: generate documentation files from source code comments
+## - Generates docs/bash/*.md from Bash scripts using shdoc
+## - Generates per-package README.md files from Go source using gomarkdoc
+## Generate per-package README.md files from Go source using gomarkdoc
+## - Requires gomarkdoc:
+
 set -euo pipefail
 cd monitor/go
 

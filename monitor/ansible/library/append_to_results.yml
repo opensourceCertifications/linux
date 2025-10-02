@@ -1,8 +1,8 @@
----
-# Required vars:
-#   result_key: string            # e.g. "restored_ok"
-#   new_items:  list[string]      # e.g. ["path1", "path2"]
+## Required vars:
+##   result_key: string            # e.g. "restored_ok"
+##   new_items:  list[string]      # e.g. ["path1", "path2"]
 
+---
 - name: Stat /tmp/results.yml
   ansible.builtin.stat:
     path: /tmp/results.yml

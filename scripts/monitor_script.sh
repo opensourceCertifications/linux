@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# monitor_script.sh
-# Purpose: Prepare the "monitor" VM with Go and Ansible (user-scoped), plus basic deps.
-# Runs as root from Vagrant provisioning.
+## monitor_script.sh
+## Purpose: Prepare the "monitor" VM with Go and Ansible (user-scoped), plus basic deps.
+## Runs as root from Vagrant provisioning.
 
 set -euo pipefail
 

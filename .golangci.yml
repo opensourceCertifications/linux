@@ -17,6 +17,7 @@ linters:
     - misspell
     - prealloc
     - cyclop
+    - gosec
 
 # NEW in v2: formatters live here (not under linters)
 formatters:
