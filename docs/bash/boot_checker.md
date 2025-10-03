@@ -1,6 +1,6 @@
 # `boot_checker.sh` — Boot File Health Probe
 
-**Purpose**: Validate integrity/health of *one* boot-related path on RHEL/AlmaLinux‑family hosts.  
+**Purpose**: Validate integrity/health of *one* boot-related path on RHEL/AlmaLinux‑family hosts.
 Outputs a single word and an exit code so Ansible can bucket results deterministically.
 
 ---
@@ -30,7 +30,7 @@ The script also prints `bootcheck: ...` diagnostic messages to **stderr** when u
 
 ## Classification & Probes
 
-The script first classifies the path by regex and then runs an appropriate, **read‑only** probe.  
+The script first classifies the path by regex and then runs an appropriate, **read‑only** probe.
 If a tool is missing, it errs on the safe side (treat as corrupted) and explains why on stderr.
 
 ### Initramfs (`/boot/initramfs-*.img`)

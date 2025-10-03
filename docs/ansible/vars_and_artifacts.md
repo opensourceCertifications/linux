@@ -33,7 +33,7 @@ corruptedBootFiles:
 
 ## `results.yml` (output / artifact)
 
-Remote: **`/tmp/results.yml`** on testenv (authoritative during a run)  
+Remote: **`/tmp/results.yml`** on testenv (authoritative during a run)
 Fetched to repo: `monitor/ansible/results.yml` (snapshot after the run)
 
 - A YAML **mapping** whose values are **lists** (deduplicated).

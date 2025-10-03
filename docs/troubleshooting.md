@@ -1,12 +1,12 @@
 # Troubleshooting
 
     ## Go modules & linter scope
-    - If `golangci-lint run` shows _“pattern ./...: directory prefix . does not contain modules …”_, run from within `monitor/go`, or pass paths explicitly:  
+    - If `golangci-lint run` shows _“pattern ./...: directory prefix . does not contain modules …”_, run from within `monitor/go`, or pass paths explicitly:
       `golangci-lint run monitor/go/...`
 
     ## AES‑GCM decryption failures
-    - Ensure the monitor and agent use **the same hex key** (must decode to **32 bytes**).  
-    - The wire format is: `uint32 big‑endian length` + `nonce(12)` + `ciphertext`.  
+    - Ensure the monitor and agent use **the same hex key** (must decode to **32 bytes**).
+    - The wire format is: `uint32 big‑endian length` + `nonce(12)` + `ciphertext`.
     - **Algorithm**: AES‑GCM (Go `crypto/cipher` with `cipher.NewGCM`).
 - **Nonce**: 12 bytes (generated per message).
 - **Key**: hex decoded; required length 32 bytes for AES‑256.

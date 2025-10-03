@@ -17,4 +17,3 @@ _None found._
 - `EncryptMessage()`
 - `SendMessage()`
 - `SendRawMessage()`
-

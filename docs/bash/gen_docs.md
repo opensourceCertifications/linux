@@ -30,5 +30,5 @@ so each package directory is self‑documenting. This is wired into pre‑commit
 ## Tips
 
 - Godoc comments drive the quality of these READMEs. Start package files with a
-  `// Package <name> ...` synopsis and write function/type comments (`// Name ...`).  
+  `// Package <name> ...` synopsis and write function/type comments (`// Name ...`).
 - Generated READMEs are committed so documentation travels with the code.
