@@ -1,0 +1,16 @@
+# Documentation Index
+
+- [README.md](README.md)
+- [docs/ansible/PLAYBOOKS.md](docs/ansible/PLAYBOOKS.md)
+- [docs/bash/boot_checker.md](docs/bash/boot_checker.md)
+- [docs/bash/ensure_bash_header.md](docs/bash/ensure_bash_header.md)
+- [docs/bash/gen_docs.md](docs/bash/gen_docs.md)
+- [docs/bash/monitor_script.md](docs/bash/monitor_script.md)
+- [docs/go/.md](docs/go/.md)
+- [docs/go/breaks.md](docs/go/breaks.md)
+- [docs/go/shared-library.md](docs/go/shared-library.md)
+- [docs/go/shared-types.md](docs/go/shared-types.md)
+- [docs/linting.md](docs/linting.md)
+- [docs/overview.md](docs/overview.md)
+- [docs/setup.md](docs/setup.md)
+- [docs/troubleshooting.md](docs/troubleshooting.md)
