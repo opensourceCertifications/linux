@@ -3,9 +3,10 @@ package main
 
 import (
 	"chaos-agent/shared/library"
+	"crypto/rand"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,6 +31,18 @@ func init() {
 	}
 }
 
+// randIndex returns a uniform random int in [0, n).
+func randIndex(n int) (int, error) {
+	if n <= 0 {
+		return 0, fmt.Errorf("empty set")
+	}
+	k, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0, fmt.Errorf("crypto rand: %w", err)
+	}
+	return int(k.Int64()), nil
+}
+
 func main() {
 	fmt.Println("port is", MonitorPort)
 	patterns := []string{
@@ -48,7 +61,17 @@ func main() {
 	}
 
 	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("found vmlinuz files: %v", vmlinuzFiles), Token, EncryptionKey)
-	file := vmlinuzFiles[rand.Intn(len(vmlinuzFiles))]
+	if len(vmlinuzFiles) == 0 {
+		library.SendMessage(MonitorIP, MonitorPort, "chaos_report",
+			"no matching kernel/initramfs/grub files found", Token, EncryptionKey)
+		log.Fatalf("no candidate files to corrupt")
+	}
+
+	idx, err := randIndex(len(vmlinuzFiles))
+	if err != nil {
+		log.Fatalf("random index failed: %v", err)
+	}
+	file := vmlinuzFiles[idx]
 	corruptedFile, err := library.CorruptFile(file, 100)
 	if err != nil {
 		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupting kernel failed: %v", err), Token, EncryptionKey)

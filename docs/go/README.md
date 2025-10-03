@@ -17,7 +17,7 @@ Description: This Go program connects to a remote VM via SSH, deploys a chaos te
 
 
 <a name="AppendChaosLine"></a>
-## func [AppendChaosLine](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/monitor_logic.go#L575>)
+## func [AppendChaosLine](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/monitor_logic.go#L723>)
 
 ```go
 func AppendChaosLine(line []byte) error
@@ -26,7 +26,7 @@ func AppendChaosLine(line []byte) error
 AppendChaosLine parses a single JSON line and appends it using AppendChaosToReport.
 
 <a name="AppendChaosToReport"></a>
-## func [AppendChaosToReport](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/monitor_logic.go#L543>)
+## func [AppendChaosToReport](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/monitor_logic.go#L691>)
 
 ```go
 func AppendChaosToReport(msg datatypes.ChaosMessage) error
@@ -35,7 +35,7 @@ func AppendChaosToReport(msg datatypes.ChaosMessage) error
 AppendChaosToReport appends a ChaosMessage under its token key into $HOME/report.log.json. The JSON file is a map\[string\]\[\]ChaosMessage.
 
 <a name="DecryptMessage"></a>
-## func [DecryptMessage](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/monitor_logic.go#L486>)
+## func [DecryptMessage](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/monitor_logic.go#L634>)
 
 ```go
 func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error)
@@ -44,7 +44,7 @@ func DecryptMessage(encryptedData []byte, encryptionKey string) ([]byte, error)
 DecryptMessage decrypts an encrypted message using AES\-GCM with the provided encryption key
 
 <a name="GenerateEncryptionKey"></a>
-## func [GenerateEncryptionKey](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/monitor_logic.go#L473>)
+## func [GenerateEncryptionKey](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/monitor_logic.go#L621>)
 
 ```go
 func GenerateEncryptionKey(keyLength int) (string, error)

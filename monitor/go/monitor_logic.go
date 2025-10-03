@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher" // Import cipher package for AES-GCM
 	"crypto/rand"
@@ -18,7 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	mathrand "math/rand"
+	"math/big"
 	"net"
 	"os"
 	"os/exec"
@@ -26,62 +27,113 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v2"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	datatypes "chaos-agent/shared/types"
 )
 
-func main() {
-	// Get IP from environment variable
-	targetIP := os.Getenv("TESTENV_ADDRESS")
-	if targetIP == "" {
-		fmt.Fprintln(os.Stderr, "Error: TESTENV_ADDRESS environment variable not set")
-		os.Exit(1) // This line is okay for startup, but subsequent errors won't exit the service
-	}
+// ---------- small helpers (exit on error to keep main flat) ----------
 
-	// Read private key (handles SSH connection)
-	keyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
-	key, err := os.ReadFile(keyPath)
+func exitf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format, args...)
+	os.Exit(1)
+}
+
+func getTargetIPOrExit() string {
+	ip := os.Getenv("TESTENV_ADDRESS")
+	if ip == "" {
+		exitf("Error: TESTENV_ADDRESS environment variable not set\n")
+	}
+	return ip
+}
+
+func signerFromDefaultKeyOrExit() ssh.Signer {
+	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading private key: %v\n", err)
-		os.Exit(1)
+		exitf("Error: could not resolve home directory\n")
+	}
+	sshDir := filepath.Join(home, ".ssh")
+	keyPath := filepath.Join(sshDir, "id_ed25519")
+
+	clean := filepath.Clean(keyPath)
+	if !strings.HasPrefix(clean, sshDir+string(os.PathSeparator)) {
+		exitf("Refusing to read private key outside %s\n", sshDir)
 	}
 
-	// Parse key
+	// #nosec G304 -- path is derived from os.UserHomeDir() and a fixed filename under ~/.ssh
+	key, err := os.ReadFile(clean)
+	if err != nil {
+		exitf("Error reading private key: %v\n", err)
+	}
 	signer, err := ssh.ParsePrivateKey(key)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing private key: %v\n", err)
-		os.Exit(1)
+		exitf("Error parsing private key: %v\n", err)
 	}
+	return signer
+}
 
-	// SSH config (for remote interaction)
-	config := &ssh.ClientConfig{
-		User: "root",
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(signer),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // ⚠️ ok for testing only
-	}
-
-	// Run remote command (this will pick a test file from "breaks")
-	scriptPath, err := pickRandomFile("breaks")
+func buildSSHConfigOrExit(signer ssh.Signer) *ssh.ClientConfig {
+	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to pick test file: %v\n", err)
-		os.Exit(1)
+		exitf("Error: could not resolve home directory\n")
 	}
+	khPath := filepath.Join(home, ".ssh", "known_hosts")
+	khChecker, err := knownhosts.New(khPath)
+	if err != nil {
+		exitf("failed to load known_hosts: %v\n", err)
+	}
+
+	return &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+			if err := khChecker(hostname, remote, key); err != nil {
+				if ke, ok := err.(*knownhosts.KeyError); ok {
+					if len(ke.Want) == 0 {
+						return fmt.Errorf("unknown host %s (fp %s). Add its key to %s",
+							hostname, ssh.FingerprintSHA256(key), khPath)
+					}
+					return fmt.Errorf("host key mismatch for %s. Expected one of %v, got %s",
+						hostname, ke.Want, ssh.FingerprintSHA256(key))
+				}
+				return err
+			}
+			return nil
+		},
+		HostKeyAlgorithms: []string{
+			ssh.KeyAlgoED25519,
+			ssh.KeyAlgoRSA,
+			ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521,
+		},
+	}
+}
+
+func pickRandomBreakScriptOrExit(dir string) string {
+	p, err := pickRandomFile(dir)
+	if err != nil {
+		exitf("Failed to pick test file: %v\n", err)
+	}
+	return p
+}
+
+// ------------------------------ main ------------------------------
+
+func main() {
+	targetIP := getTargetIPOrExit()
+	signer := signerFromDefaultKeyOrExit()
+	config := buildSSHConfigOrExit(signer)
+
+	scriptPath := pickRandomBreakScriptOrExit("breaks")
 	fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
 
-	// Start the listener and wait for connections
-	err = runRemoteCommandWithListener(targetIP, config, scriptPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1) // This will exit only on critical failure to start service
+	if err := runRemoteCommandWithListener(targetIP, config, scriptPath); err != nil {
+		exitf("Error: %v\n", err)
 	}
-
-	// The service should now keep running and processing incoming connections
 }
 
 func generateToken(nBytes int) (string, error) {
@@ -102,40 +154,126 @@ func pickRandomFile(dir string) (string, error) {
 		return "", fmt.Errorf("no .go files found in %s", dir)
 	}
 	///mathrand.Seed(time.Now().UnixNano())
-	return files[mathrand.Intn(len(files))], nil
+	n := big.NewInt(int64(len(files)))
+	r, err := rand.Int(rand.Reader, n)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random index: %w", err)
+	}
+	return files[r.Int64()], nil
+
 }
 
-func compileChaosBinary(sourcePath, monitorIP string, port int, token string, encryptionKey string) (string, error) {
+// imports: context, fmt, os, os/exec, path/filepath, strconv, strings, time
+
+func compileChaosBinary(sourcePath, monitorIP string, port int, token, encryptionKey string) (string, error) {
 	outputPath := filepath.Join("/tmp", "break_tool")
+	ldflags := fmt.Sprintf(
+		"-X=main.MonitorIP=%s -X=main.MonitorPortStr=%s -X=main.Token=%s -X=main.EncryptionKey=%s",
+		monitorIP, strconv.Itoa(port), token, encryptionKey,
+	)
 
-	ldflags := fmt.Sprintf("-X=main.MonitorIP=%s -X=main.MonitorPortStr=%s -X=main.Token=%s -X=main.EncryptionKey=%s", monitorIP, strconv.Itoa(port), token, encryptionKey)
-
-	cmd := exec.Command("go", "build", "-o", outputPath, "-ldflags", ldflags, sourcePath)
-	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err := cmd.Run()
+	// Guardrail 1: only build files under ./breaks and with .go extension
+	absSrc, err := filepath.Abs(sourcePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to compile chaos binary: %v", err)
+		return "", fmt.Errorf("abs source: %w", err)
+	}
+	breaksDir, err := filepath.Abs("breaks")
+	if err != nil {
+		return "", fmt.Errorf("abs breaks: %w", err)
+	}
+	if filepath.Ext(absSrc) != ".go" || !strings.HasPrefix(absSrc, breaksDir+string(os.PathSeparator)) {
+		return "", fmt.Errorf("refusing to build untrusted source path: %q", absSrc)
 	}
 
+	// Guardrail 2: resolve the go tool explicitly
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		return "", fmt.Errorf("go tool not found: %w", err)
+	}
+
+	// Optional: timeout so builds can’t hang this ephemeral service
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	// #nosec G204 -- argv validated (source restricted to ./breaks/*.go); explicit tool path; no shell used
+	cmd := exec.CommandContext(ctx, goBin, "build", "-o", outputPath, "-ldflags", ldflags, absSrc)
+
+	// Guardrail 3: explicit env (avoid inherited GOFLAGS/-toolexec/etc.)
+	cmd.Env = []string{
+		"GOOS=linux",
+		"GOARCH=amd64",
+		"CGO_ENABLED=0",
+		"HOME=/tmp",
+		// clear potentially dangerous vars
+		"GOFLAGS=",
+		"GOTOOLCHAIN=local",
+	}
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to compile chaos binary: %w", err)
+	}
 	return outputPath, nil
 }
 
-// copy the compiled binary to the remote VM using scp
+// imports you'll need:
+// "context", "fmt", "net", "os", "os/exec", "path/filepath", "strings", "time"
+
 func scpToRemote(ip, localPath, remotePath string) error {
-	keyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "id_ed25519")
-	// -o StrictHostKeyChecking=no is fine for your local test setup
-	cmd := exec.Command(
-		"scp",
+	// --- Validate inputs (prove argv aren't attacker-controlled) ---
+	if net.ParseIP(ip) == nil {
+		return fmt.Errorf("invalid IP: %q", ip)
+	}
+	// Only allow copying to /tmp on the remote (tighten as you like)
+	if !strings.HasPrefix(remotePath, "/tmp/") {
+		return fmt.Errorf("refusing remote path outside /tmp: %q", remotePath)
+	}
+
+	absLocal, err := filepath.Abs(localPath)
+	if err != nil {
+		return fmt.Errorf("abs local: %w", err)
+	}
+	fi, err := os.Stat(absLocal)
+	if err != nil {
+		return fmt.Errorf("stat local: %w", err)
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("local path is not a regular file: %q", absLocal)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home: %w", err)
+	}
+	sshDir := filepath.Join(home, ".ssh")
+	keyPath := filepath.Join(sshDir, "id_ed25519")
+	khPath := filepath.Join(sshDir, "known_hosts")
+
+	// Resolve scp and set a timeout so we can’t hang forever
+	scpBin, err := exec.LookPath("scp")
+	if err != nil {
+		return fmt.Errorf("scp not found in PATH: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// #nosec G204 -- argv validated (IP, remotePath restricted to /tmp, local is regular file);
+	// no shell used; host key verification enforced via UserKnownHostsFile
+	cmd := exec.CommandContext(ctx, scpBin,
 		"-i", keyPath,
-		"-o", "StrictHostKeyChecking=no",
-		localPath,
+		"-o", "IdentitiesOnly=yes",
+		"-o", "BatchMode=yes",
+		"-o", "PasswordAuthentication=no",
+		"-o", "KbdInteractiveAuthentication=no",
+		"-o", "StrictHostKeyChecking=yes",
+		"-o", "UserKnownHostsFile="+khPath,
+		absLocal,
 		fmt.Sprintf("root@%s:%s", ip, remotePath),
 	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Minimal, explicit env to avoid hostile GOFLAGS/etc. leaking in (optional here)
+	cmd.Env = append([]string{}, os.Environ()...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+
 	return cmd.Run()
 }
 
@@ -243,29 +381,39 @@ func closeQuietly(c io.Closer, label string) {
 }
 
 // setupListenerAndSecrets opens a random TCP port and creates the token+encKey.
-func setupListenerAndSecrets() (ln net.Listener, port int, token string, encKey string, err error) {
-	ln, err = net.Listen("tcp", ":0")
-	if err != nil {
-		return nil, 0, "", "", fmt.Errorf("failed to open listener: %w", err)
+func setupListenerAndSecrets() (ln net.Listener, port int, token, encKey string, err error) {
+	mon := os.Getenv("MONITOR_ADDRESS")
+	if mon == "" {
+		return nil, 0, "", "", fmt.Errorf("MONITOR_ADDRESS not set")
 	}
-	addr := ln.Addr().(*net.TCPAddr)
-	port = addr.Port
 
-	token, err = generateToken(16) // 16 bytes = 32 hex
+	// Use JoinHostPort so IPv6 like "fd00::1" becomes "[fd00::1]:0"
+	addr := net.JoinHostPort(mon, "0")
+
+	// Bind only to this local IP, random port
+	// #nosec G102 -- binding to a specific interface via MONITOR_ADDRESS (not 0.0.0.0)
+	ln, err = net.Listen("tcp", addr)
+	if err != nil {
+		return nil, 0, "", "", fmt.Errorf("failed to open listener on %s: %w", addr, err)
+	}
+
+	port = ln.Addr().(*net.TCPAddr).Port
+
+	token, err = generateToken(16)
 	if err != nil {
 		closeQuietly(ln, "listener")
-		return nil, 0, "", "", fmt.Errorf("failed to generate token: %w", err)
+		return nil, 0, "", "", fmt.Errorf("token: %w", err)
 	}
+
+	encKey, err = GenerateEncryptionKey(32)
+	if err != nil {
+		closeQuietly(ln, "listener")
+		return nil, 0, "", "", fmt.Errorf("enc key: %w", err)
+	}
+
 	fmt.Printf("🔑 Generated token: %s\n", token)
-	fmt.Printf("📡 Listening on port %d\n", port)
-
-	encKey, err = GenerateEncryptionKey(32) // 32 bytes = 64 hex
-	if err != nil {
-		closeQuietly(ln, "listener")
-		return nil, 0, "", "", fmt.Errorf("failed to generate encryption key: %w", err)
-	}
+	fmt.Printf("📡 Listening on %s:%d\n", mon, port)
 	fmt.Printf("🔑 Generated encryption key: %s\n", encKey)
-
 	return ln, port, token, encKey, nil
 }
 
