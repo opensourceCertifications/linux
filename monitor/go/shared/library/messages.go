@@ -88,6 +88,7 @@ func SendRawMessage(ip string, port int, message string, encryptionKey string) e
 	}()
 
 	// 👇 Add 4-byte length prefix
+	// #nosec G115 // No point limiting message size here, will be limited by server anyway
 	msgLen := uint32(len(encryptedMessage))
 	lenBuf := make([]byte, 4)
 	binary.BigEndian.PutUint32(lenBuf, msgLen)

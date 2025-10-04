@@ -557,7 +557,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		case "chaos_report":
 			fmt.Printf("🐛 Chaos Report: %s", msg.Message)
 			logPath := "/tmp/chaos_reports.log"
-			f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "log open error: %v\n", err)
 				break
@@ -581,6 +581,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 
 			// Step 1: Load existing YAML if present
 			vars := make(map[string][]string)
+			// #nosec G304 -- filePath is fixed under ../ansible/; not user-controlled
 			if data, err := os.ReadFile(filePath); err == nil {
 				if len(data) > 0 {
 					if err := yaml.Unmarshal(data, &vars); err != nil {
@@ -605,7 +606,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 				break
 			}
 
-			if err := os.WriteFile(filePath, out, 0644); err != nil {
+			if err := os.WriteFile(filePath, out, 0600); err != nil {
 				fmt.Fprintf(os.Stderr, "variable file write error: %v\n", err)
 			} else {
 				fmt.Printf("✅ Updated %s with %s -> %s\n", filePath, key, value)
@@ -735,11 +736,11 @@ func ensureJSONFile(path string) error {
 	_, statErr := os.Stat(path)
 	if os.IsNotExist(statErr) {
 		// Make sure parent dir exists (usually HOME, but safe)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			return fmt.Errorf("mkdir parents: %w", err)
 		}
 		// Initialize as {}
-		if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
 			return fmt.Errorf("init report file: %w", err)
 		}
 		return nil
@@ -748,6 +749,7 @@ func ensureJSONFile(path string) error {
 }
 
 func readReport(path string) (map[string][]datatypes.ChaosMessage, error) {
+	// #nosec G304 -- path is fixed under $HOME; not user-controlled
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -759,7 +761,7 @@ func readReport(path string) (map[string][]datatypes.ChaosMessage, error) {
 	var logs map[string][]datatypes.ChaosMessage
 	if err := json.Unmarshal(data, &logs); err != nil {
 		// If the file is corrupt, back it up and start fresh
-		_ = os.WriteFile(path+".corrupt.bak", data, 0o644)
+		_ = os.WriteFile(path+".corrupt.bak", data, 0o600)
 		logs = map[string][]datatypes.ChaosMessage{}
 	}
 	return logs, nil
@@ -772,7 +774,7 @@ func writeJSONAtomic(path string, v any) error {
 		return err
 	}
 	// Write temp file first
-	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+	if err := os.WriteFile(tmp, out, 0o600); err != nil {
 		return err
 	}
 	// Atomic replace

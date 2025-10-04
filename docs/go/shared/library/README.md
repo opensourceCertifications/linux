@@ -11,19 +11,29 @@ Package library provides functions to corrupt files by flipping bits and adding 
 ## Index
 
 - [func CorruptFile\(path string, percent int\) \(string, error\)](<#CorruptFile>)
+- [func CorruptPercent\(data \[\]byte, percent int\) error](<#CorruptPercent>)
 - [func EncryptMessage\(message string, encryptionKey string\) \(\[\]byte, error\)](<#EncryptMessage>)
 - [func SendMessage\(ip string, port int, status string, message string, token string, encryptionKey string\)](<#SendMessage>)
 - [func SendRawMessage\(ip string, port int, message string, encryptionKey string\) error](<#SendRawMessage>)
 
 
 <a name="CorruptFile"></a>
-## func [CorruptFile](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L39>)
+## func [CorruptFile](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L83>)
 
 ```go
 func CorruptFile(path string, percent int) (string, error)
 ```
 
 CorruptFile corrupts a file at the given path by flipping bits and adding an offset to a percentage of its bytes. It returns the path of the corrupted file or an error if something goes wrong.
+
+<a name="CorruptPercent"></a>
+## func [CorruptPercent](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L38>)
+
+```go
+func CorruptPercent(data []byte, percent int) error
+```
+
+CorruptPercent overwrites approximately percent% of bytes \(at least 1 if percent\>0\).
 
 <a name="EncryptMessage"></a>
 ## func [EncryptMessage](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/messages.go#L17>)
@@ -35,7 +45,7 @@ func EncryptMessage(message string, encryptionKey string) ([]byte, error)
 EncryptMessage encrypts the message using AES\-GCM with the provided encryption key
 
 <a name="SendMessage"></a>
-## func [SendMessage](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/messages.go#L110>)
+## func [SendMessage](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/messages.go#L111>)
 
 ```go
 func SendMessage(ip string, port int, status string, message string, token string, encryptionKey string)
