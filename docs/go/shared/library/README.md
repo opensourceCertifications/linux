@@ -18,7 +18,7 @@ Package library provides functions to corrupt files by flipping bits and adding 
 
 
 <a name="CorruptFile"></a>
-## func [CorruptFile](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L83>)
+## func [CorruptFile](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L64>)
 
 ```go
 func CorruptFile(path string, percent int) (string, error)
@@ -27,7 +27,7 @@ func CorruptFile(path string, percent int) (string, error)
 CorruptFile corrupts a file at the given path by flipping bits and adding an offset to a percentage of its bytes. It returns the path of the corrupted file or an error if something goes wrong.
 
 <a name="CorruptPercent"></a>
-## func [CorruptPercent](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L38>)
+## func [CorruptPercent](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L19>)
 
 ```go
 func CorruptPercent(data []byte, percent int) error
