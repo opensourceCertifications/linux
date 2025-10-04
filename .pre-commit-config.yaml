@@ -1,0 +1,109 @@
+---
+repos:
+  - repo: local
+    hooks:
+      - id: golangci-lint-in-module
+        name: golangci-lint (monitor/go)
+        language: system
+        pass_filenames: false
+        entry: bash -lc 'cd monitor/go && golangci-lint run --config=../../.golangci.yml --fix --timeout=2m ./...'
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: vagrant-validate
+        name: vagrant validate
+        entry: vagrant validate --ignore-provider
+        language: system
+        pass_filenames: false
+        files: ^Vagrantfile$
+
+  - repo: https://github.com/ansible/ansible-lint
+    rev: v25.9.0
+    hooks:
+      - id: ansible-lint
+        name: ansible-lint (playbooks & roles)
+        files: ^monitor/ansible/.*\.(yml|yaml)$
+        additional_dependencies:
+          - ansible-core>=2.15
+          - yamllint>=1.33.0
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+        name: yamllint (all YAML)
+        files: \.(yml|yaml)$
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        name: shellcheck (bash/sh)
+        types: [shell] # applies to files detected as shell scripts
+        args: ["-x"] # follow sourced files where possible
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.12.0-2
+    hooks:
+      - id: shfmt
+        name: shfmt (format shell scripts)
+        types: [shell]
+        args: ["-i", "0", "-sr", "-w"] # 0 => use tabs, keep simplified redirects, write in place
+
+  # .pre-commit-config.yaml
+  - repo: local
+    hooks:
+      - id: prettier-yaml
+        name: prettier (YAML)
+        language: system
+        entry: bash -c './node_modules/.bin/prettier --parser=yaml --write "$@"' --
+        files: '\.(yml|yaml)$'
+        exclude: '^monitor/ansible/(ansible_vars\.yml|results\.yml)$'
+        pass_filenames: true
+
+  - repo: https://github.com/rubocop/rubocop
+    rev: v1.81.1 # or any current tag you prefer
+    hooks:
+      - id: rubocop
+        name: rubocop (Vagrantfile, autocorrect)
+        files: ^Vagrantfile$
+        args: ["-A", "--config", ".rubocop.yml"] # autocorrect offenses where safe
+
+  - repo: local
+    hooks:
+      # Runs only when go.mod or go.sum in monitor/go change
+      - id: go-mod-tidy
+        name: go mod tidy (monitor/go)
+        language: system
+        entry: bash -lc 'cd monitor/go && go mod tidy'
+        pass_filenames: false # we don't want pre-commit to pass file paths
+        files: ^monitor/go/(go\.mod|go\.sum)$
+        require_serial: true # this hook edits files; avoid parallel runs
+
+      # Validate Vagrantfile (you already had a similar one; keep one copy)
+      - id: vagrant-validate
+        name: Validate Vagrantfile
+        description: Runs vagrant validate to validate Vagrantfiles
+        language: system
+        entry: vagrant validate --ignore-provider
+        pass_filenames: false
+        files: ^Vagrantfile$
+
+      - id: gomarkdoc
+        name: gomarkdoc (generate package READMEs)
+        language: system
+        pass_filenames: false
+        entry: bash scripts/gen_docs.sh
+        files: ^monitor/go/.*\.go$
+
+      - id: ensure-bash-header
+        name: ensure shdoc-style header in shell scripts
+        language: system
+        entry: bash scripts/ensure_bash_header.sh
+        types: [shell] # only shell scripts
+        pass_filenames: true # let pre-commit pass the changed files

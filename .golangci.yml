@@ -1,0 +1,81 @@
+---
+version: "2"
+
+run:
+  timeout: 2m
+  tests: true
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - ineffassign
+    - errcheck
+    - unused
+    - gocritic
+    - revive
+    - misspell
+    - prealloc
+    - cyclop
+    - gosec
+    - gocritic
+
+# NEW in v2: formatters live here (not under linters)
+formatters:
+  enable:
+    - goimports # formats + organizes imports
+    # - gofmt          # optional; redundant if goimports is enabled
+
+formatters-settings:
+  goimports:
+    local-prefixes: github.com/opensourceCertifications/linux
+
+issues:
+  exclude-use-default: false
+  max-same-issues: 0
+  max-issues-per-linter: 0
+
+linters-settings:
+  revive:
+    rules:
+      - name: indent-error-flow
+      - name: exported
+      - name: var-naming
+  cyclop:
+    max-complexity: 15
+  gocritic:
+    enabled-tags:
+      - performance
+      - style
+      - correctness
+      - opinionated
+      - experimental
+      - diagnostic
+      - unused
+    enabled-checks:
+      - appendAssign
+      - assignOp
+      - boolExprSimplify
+      - captLocal
+      - commentedOutCode
+      - commentFormatting
+      - condAssign
+      - contextAsArgument
+      - deferInLoop
+      - emptyStringTest
+      - ifElseChain
+      - importShadow
+      - lazyExpr
+      - mapKeyCopy
+      - rangeValCopy
+      - regexpMust
+      - simplifyBoolExpr
+      - simplifyLenCompare
+      - simplifyRangeExpr
+      - stringXbytes
+      - timeSleep
+      - typeUnparen
+      - unnecessaryDefer
+      - unnecessaryNilCheck
+      - unnecessaryTypeAssert
+      - unslice

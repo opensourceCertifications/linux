@@ -1,0 +1,73 @@
+---
+# Play 1: create dynamic host group on the monitor
+- name: Add host and vars
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/ansible_vars.yml"
+  vars:
+    testenv_address: "{{ lookup('env','TESTENV_ADDRESS') }}"
+  tasks:
+    - name: Add testenv_address to 'testenv'
+      ansible.builtin.add_host:
+        name: "{{ lookup('env', 'TESTENV_ADDRESS') }}"
+        groups: testenv
+
+    - name: Collect all check playbooks (yml + yaml)
+      ansible.builtin.set_fact:
+        check_playbooks: >-
+          {{
+            (query('ansible.builtin.fileglob', playbook_dir ~ '/checks/*.yml')
+             + query('ansible.builtin.fileglob', playbook_dir ~ '/checks/*.yaml'))
+            | unique | sort
+          }}
+
+    - name: Show what we found
+      ansible.builtin.debug:
+        var: check_playbooks
+
+# Play 2: copy ansible_vars.yml to /tmp on testenv
+- name: Push vars to testenv (native)
+  hosts: testenv
+  gather_facts: false
+  remote_user: root
+  vars_files:
+    - "{{ playbook_dir }}/ansible_vars.yml"
+  tasks:
+    - name: Upload vars to /tmp
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/ansible_vars.yml"
+        dest: /tmp/ansible_vars.yml
+        mode: "0600"
+
+    - name: Initialize /tmp/results.yml to empty JSON
+      ansible.builtin.copy:
+        dest: /tmp/results.yml
+        content: "{}\n"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Run all check task files on testenv
+      block:
+        - name: Include {{ item | basename }}
+          ansible.builtin.include_tasks: "{{ item }}"
+          vars:
+            # Handy per-check vars you can use inside each task file
+            _cid: "{{ item | basename | regex_replace('\\.(yml|yaml)$', '') }}"
+            _rad: "/tmp/{{ item | basename | regex_replace('\\.(yml|yaml)$', '') }}"
+          loop: "{{ hostvars['localhost'].check_playbooks }}"
+          loop_control:
+            label: "{{ item | basename }}"
+
+# Play 3: fetch /tmp/results.json from testenv to results/
+- name: Fetch /tmp/results.yml (per check)
+  hosts: testenv
+  gather_facts: false
+  remote_user: root
+  tasks:
+    - name: Download results.json from testenv
+      ansible.builtin.fetch:
+        src: /tmp/results.yml
+        dest: "{{ playbook_dir }}/"
+        flat: true

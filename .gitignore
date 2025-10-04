@@ -9,5 +9,16 @@ tfplan
 .terraform.lock.hcl
 
 .terraform/
+.ansible /
+monitor/ansible/ansible_vars.yml
+monitor/ansible/results.yml
+
+.vagrant/
 
 *.log
+
+.cache
+
+.bash_history
+
+node_modules/

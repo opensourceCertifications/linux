@@ -1,18 +1,13 @@
 # Linux Bootloader Chaos Lab
 
-    **Goal:** Provide a local lab that corrupts boot‑critical files on a test VM and validates
-    detection/repair paths. A Go **monitor** VM builds and ships a “break” binary to a
-    **testenv** VM, receives encrypted reports, and drives Ansible checks.
+    This repository provisions a **monitor VM** and a **testenv VM** (AlmaLinux 9)
+    via **Vagrant/VirtualBox**. The monitor compiles and ships a small Go “break”
+    binary to the testenv which deliberately corrupts selected boot files (e.g. `vmlinuz`,
+    `initramfs`, GRUB files). A lightweight **TCP+AES‑GCM** channel reports progress
+    and results back to the monitor. Ansible playbooks then **verify** the testenv state
+    and bucket results.
 
-    ## Quick start
-    ```bash
-    vagrant up
-    vagrant ssh monitor
-    cd /vagrant/monitor/go
-    go run monitor_logic.go
-    ```
-
-    ## Layout
+    ## Repository structure (abridged)
     ```text
     linux-39
 ├── monitor
@@ -57,10 +52,4 @@
 └── Vagrantfile
     ```
 
-    ## Docs
-    - `docs/overview.md` – architecture & flow
-    - `docs/setup.md` – prerequisites and commands
-    - `docs/ansible/PLAYBOOKS.md` – playbook index
-    - `docs/go/*` – Go package summaries
-    - `docs/bash/*` – shell script headers
-    - `docs/troubleshooting.md` – common fixes
+    See also: `docs/setup.md`, `docs/ansible/PLAYBOOKS.md`, `docs/go/*`.

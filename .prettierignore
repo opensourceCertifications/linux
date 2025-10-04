@@ -1,0 +1,3 @@
+# .prettierignore
+monitor/ansible/ansible_vars.yml
+monitor/ansible/results.yml

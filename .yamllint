@@ -1,0 +1,24 @@
+---
+extends: default
+
+rules:
+  # --- Harmonize with Prettier & ansible-lint expectations ---
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+
+  # --- Your existing preferences (kept) ---
+  line-length:
+    max: 120
+    level: warning
+  indentation:
+    indent-sequences: consistent
+    spaces: 2
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+    level: warning
