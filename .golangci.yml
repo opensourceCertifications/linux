@@ -18,6 +18,7 @@ linters:
     - prealloc
     - cyclop
     - gosec
+    - gocritic
 
 # NEW in v2: formatters live here (not under linters)
 formatters:
@@ -42,3 +43,39 @@ linters-settings:
       - name: var-naming
   cyclop:
     max-complexity: 15
+  gocritic:
+    enabled-tags:
+      - performance
+      - style
+      - correctness
+      - opinionated
+      - experimental
+      - diagnostic
+      - unused
+    enabled-checks:
+      - appendAssign
+      - assignOp
+      - boolExprSimplify
+      - captLocal
+      - commentedOutCode
+      - commentFormatting
+      - condAssign
+      - contextAsArgument
+      - deferInLoop
+      - emptyStringTest
+      - ifElseChain
+      - importShadow
+      - lazyExpr
+      - mapKeyCopy
+      - rangeValCopy
+      - regexpMust
+      - simplifyBoolExpr
+      - simplifyLenCompare
+      - simplifyRangeExpr
+      - stringXbytes
+      - timeSleep
+      - typeUnparen
+      - unnecessaryDefer
+      - unnecessaryNilCheck
+      - unnecessaryTypeAssert
+      - unslice

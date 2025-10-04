@@ -15,25 +15,6 @@ func clampPercent(p int) int {
 	return p
 }
 
-// func corruptAll(data []byte, offset byte) {
-//	for i := range data {
-//		data[i] = (data[i] ^ 0xFF) + offset
-//	}
-//}
-//
-// func corruptSample(data []byte, percent int, offset byte, r *rand.Rand) {
-//	n := len(data)
-//	k := n * percent / 100
-//	if k == 0 && percent > 0 {
-//		k = 1
-//	}
-//	perm := r.Perm(n)
-//	for i := 0; i < k; i++ {
-//		idx := perm[i]
-//		data[idx] = (data[idx] ^ 0xFF) + offset
-//	}
-//}
-
 // CorruptPercent overwrites approximately percent% of bytes (at least 1 if percent>0).
 func CorruptPercent(data []byte, percent int) error {
 	n := len(data)
@@ -104,8 +85,6 @@ func CorruptFile(path string, percent int) (string, error) {
 
 	// Normalize percent and set up local RNG (no deprecated rand.Seed)
 	percent = clampPercent(percent)
-	// r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	// offset := byte(r.Intn(256))
 
 	// Corrupt bytes
 	err = CorruptPercent(data, percent)
@@ -113,12 +92,6 @@ func CorruptFile(path string, percent int) (string, error) {
 		log.Printf("failed to corrupt data for file %s: %v", path, err)
 		return "", err
 	}
-
-	// if percent == 100 {
-	//	corruptAll(data, offset)
-	// } else {
-	//	corruptSample(data, percent, offset, r)
-	//}
 
 	// Write back
 	if err := os.WriteFile(path, data, info.Mode()); err != nil {
