@@ -94,6 +94,9 @@ Vagrant.configure('2') do |config|
     monitor.vm.provision 'shell', privileged: false, inline: <<-SHELL
       ssh-keygen -t ed25519 -f $HOME/.ssh/id_ed25519 -N ""
       cp $HOME/.ssh/id_ed25519.pub #{host_mount}/monitor.pub
+      echo "Host #{testenv_ip} testenv
+        StrictHostKeyChecking accept-new
+        UserKnownHostsFile $HOME/.ssh/known_hosts" > $HOME/.ssh/config
     SHELL
 
     # Run any additional bootstrap as root (external script you maintain)
@@ -125,6 +128,7 @@ Vagrant.configure('2') do |config|
       while true; do
         if [ "$(wc -l < #{host_mount}/monitor.pub)" -gt 0 ]; then
           # Append the key and fix permissions
+          echo "Monitor public key found, installing..." >> /home/vagrant/ssh_key_install.loging
           cat #{host_mount}/monitor.pub >> $HOME/.ssh/authorized_keys
           break
         else
