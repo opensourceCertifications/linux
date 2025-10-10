@@ -1,7 +1,7 @@
 # 🧨 Linux Chaos Certification — Failure Families Catalog
 
-The following table defines **40 parameterized chaos families** distributed across **10 domains**.  
-Each family represents a category of break the monitor can introduce during the exam.  
+The following table defines **40 parameterized chaos families** distributed across **10 domains**.
+Each family represents a category of break the monitor can introduce during the exam.
 Every family has multiple tunable parameters, allowing variant generation and randomization.
 
 ---
@@ -55,9 +55,9 @@ Every family has multiple tunable parameters, allowing variant generation and ra
 
 ### 🧩 Next Steps
 
-1. Pick a domain to focus on first (e.g., *Boot & Kernel*).  
-2. For each family in that domain, open an implementation ticket:  
-   - Define exact break command(s).  
-   - Implement a Go chaos module and matching Ansible verification.  
-   - Include rollback logic and randomness knobs.  
+1. Pick a domain to focus on first (e.g., *Boot & Kernel*).
+2. For each family in that domain, open an implementation ticket:
+   - Define exact break command(s).
+   - Implement a Go chaos module and matching Ansible verification.
+   - Include rollback logic and randomness knobs.
 3. Iterate and test with your two-VM harness (`monitor` + `testenv`).

@@ -95,8 +95,13 @@ Vagrant.configure('2') do |config|
       ssh-keygen -t ed25519 -f $HOME/.ssh/id_ed25519 -N ""
       cp $HOME/.ssh/id_ed25519.pub #{host_mount}/monitor.pub
       echo "Host #{testenv_ip} testenv
+        User root
+        IdentityFile $HOME/.ssh/id_ed25519
         StrictHostKeyChecking accept-new
         UserKnownHostsFile $HOME/.ssh/known_hosts" > $HOME/.ssh/config
+        chmod 600 $HOME/.ssh/config
+        ssh-keyscan -H #{testenv_ip} >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+        ssh-keyscan -H testenv        >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
     SHELL
 
     # Run any additional bootstrap as root (external script you maintain)

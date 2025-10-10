@@ -36,4 +36,8 @@ func main() {
 	}
 	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("files to be jumbled: %s", files), Token, EncryptionKey)
 	fmt.Println("files to be jumbled:", files)
+	err = library.CyclicJumble(files)
+	if err != nil {
+		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", "broken", Token, EncryptionKey)
+	}
 }
