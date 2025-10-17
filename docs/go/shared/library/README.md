@@ -8,9 +8,9 @@ import "chaos-agent/shared/library"
 
 Package library provides functions to corrupt files by flipping bits and adding an offset.
 
-shared/library/file\_jumble.go
+Package library provides file manipulation utilities. It includes functions for cyclically jumbling file contents while preserving metadata. It ensures safe file operations by preventing path traversal and symlink attacks. It is designed for use in controlled environments where file integrity is critical.
 
-shared/library/filepicker.go
+Package library provides utility functions for file selection. It includes functionality to pick random binaries from common system directories.
 
 ## Index
 
@@ -42,7 +42,7 @@ func CorruptPercent(data []byte, percent int) error
 CorruptPercent overwrites approximately percent% of bytes \(at least 1 if percent\>0\).
 
 <a name="CyclicJumble"></a>
-## func [CyclicJumble](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/file_jumble.go#L36>)
+## func [CyclicJumble](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/file_jumble.go#L44>)
 
 ```go
 func CyclicJumble(paths []string) error
@@ -50,7 +50,7 @@ func CyclicJumble(paths []string) error
 
 CyclicJumble takes a list of absolute file paths \(regular files\) and performs a cycle: paths\[i\] content \-\> paths\[\(i\+1\)%n\] for all i.
 
-It preserves each destination file's original metadata as much as possible: \- permissions \(mode\), ownership \(uid/gid\), atime/mtime, and extended attributes \(best\-effort\). \- Operations are atomic per destination via rename\(2\) of a same\-dir temp file. Notes/limits: \- ctime cannot be preserved on Linux. \- Non\-regular files \(dirs/symlinks/devices\) are rejected. \- Paths must be unique.
+It preserves each destination file's original metadata as much as possible: \- permissions \(mode\), ownership \(uid/gid\), atime/mtime, and extended attributes \(best\-effort\). \- Operations are atomic per destination via rename\(2\) of a same\-dir temp file. Notes/limits: \- ctime cannot be preserved on Linux. \- Non\-regular files \(dirs/symlinks/devices\) are rejected. \- Paths must be unique. CyclicJumble writes content of paths\[i\] into paths\[\(i\+1\)%n\], preserving the destination's metadata captured prior to the swap.
 
 <a name="EncryptMessage"></a>
 ## func [EncryptMessage](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/messages.go#L17>)
@@ -62,13 +62,13 @@ func EncryptMessage(message string, encryptionKey string) ([]byte, error)
 EncryptMessage encrypts the message using AES\-GCM with the provided encryption key
 
 <a name="PickRandomBinaries"></a>
-## func [PickRandomBinaries](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/file_selector.go#L21>)
+## func [PickRandomBinaries](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/file_selector.go#L52>)
 
 ```go
 func PickRandomBinaries() ([]string, error)
 ```
 
-PickRandomBinaries scans common system binary dirs, picks a random count between 15 and 20, then returns that many unique file paths \(or fewer if not enough exist\). \- Non\-existent directories are skipped silently. \- Only regular files are considered \(no dirs/symlinks\). \- Selection is without replacement.
+PickRandomBinaries selects between 15 and 20 unique binary file paths
 
 <a name="SendMessage"></a>
 ## func [SendMessage](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/messages.go#L111>)

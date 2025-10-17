@@ -1,0 +1,102 @@
+---
+- name: Load /tmp/work_items.yml from testenv (remote)
+  ansible.builtin.slurp:
+    src: /tmp/work_items.yml
+  register: wi_raw
+
+- name: Parse YAML into 'wi'
+  ansible.builtin.set_fact:
+    wi: "{{ wi_raw.content | b64decode | from_yaml }}"
+
+- name: Ensure helper tools are present
+  become: true
+  ansible.builtin.package:
+    name:
+      - dracut # lsinitrd
+      - grub2-tools-minimal # grub2-editenv
+      - file # file(1)
+      - dnf-plugins-core # repoquery
+    state: present
+
+- name: Init result buckets
+  ansible.builtin.set_fact:
+    restored_files: []
+    missing_paths: []
+    structural_bad: []
+    not_rpm_owned: []
+    rpm_mismatch: []
+    not_latest: []
+    untrusted_signer: []
+    hash_mismatch: []
+
+# 🔁 Loop over items by including a per-item task file
+- name: Evaluate one work item
+  ansible.builtin.include_tasks:
+    file: "{{ playbook_dir }}/library/_eval_one_item.yml" # <-- pass file explicitly
+  loop: "{{ wi.work_items | default([]) }}"
+  loop_control:
+    loop_var: wi_item # <-- avoid 'item' collisions
+    label: "{{ wi_item.path }}"
+  vars:
+    _p: "{{ wi_item.path }}"
+    _class: "{{ wi_item.class | default('generic') }}"
+    _rpm_check: "{{ wi_item.rpm_check | default(false) | bool }}"
+    _latest: "{{ wi_item.latest_policy | default(false) | bool }}"
+    _signer: "{{ wi_item.signer_policy | default(false) | bool }}"
+    _hash_policy: "{{ wi_item.hash_policy | default('none') }}"
+    _baseline_sha256: "{{ wi_item.baseline_sha256 | default('') }}"
+    _reference_sha256: "{{ wi_item.reference_sha256 | default('') }}"
+    _allowed_keys: "{{ wi.allowed_rpm_keyids | default([]) }}"
+
+# De-dup buckets
+- name: Unique-ify buckets
+  ansible.builtin.set_fact:
+    restored_files: "{{ restored_files | unique }}"
+    missing_paths: "{{ missing_paths | unique }}"
+    structural_bad: "{{ structural_bad | unique }}"
+    not_rpm_owned: "{{ not_rpm_owned | unique }}"
+    rpm_mismatch: "{{ rpm_mismatch | unique }}"
+    not_latest: "{{ not_latest | unique }}"
+    untrusted_signer: "{{ untrusted_signer | unique }}"
+    hash_mismatch: "{{ hash_mismatch | unique }}"
+
+# Append results using your existing helper
+- name: Append restored_files
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars: { result_key: "restored_files", new_items: "{{ restored_files }}" }
+  when: restored_files | length > 0
+
+- name: Append missing_paths
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars: { result_key: "missing_paths", new_items: "{{ missing_paths }}" }
+  when: missing_paths | length > 0
+
+- name: Append structural_bad
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars: { result_key: "structural_bad", new_items: "{{ structural_bad }}" }
+  when: structural_bad | length > 0
+
+- name: Append not_rpm_owned
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars: { result_key: "not_rpm_owned", new_items: "{{ not_rpm_owned }}" }
+  when: not_rpm_owned | length > 0
+
+- name: Append rpm_mismatch
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars: { result_key: "rpm_mismatch", new_items: "{{ rpm_mismatch }}" }
+  when: rpm_mismatch | length > 0
+
+- name: Append not_latest
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars: { result_key: "not_latest", new_items: "{{ not_latest }}" }
+  when: not_latest | length > 0
+
+- name: Append untrusted_signer
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars: { result_key: "untrusted_signer", new_items: "{{ untrusted_signer }}" }
+  when: untrusted_signer | length > 0
+
+- name: Append hash_mismatch
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars: { result_key: "hash_mismatch", new_items: "{{ hash_mismatch }}" }
+  when: hash_mismatch | length > 0

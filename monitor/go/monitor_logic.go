@@ -121,21 +121,6 @@ func pickRandomBreakScriptOrExit(dir string) string {
 	return p
 }
 
-// ------------------------------ main ------------------------------
-
-func main() {
-	targetIP := getTargetIPOrExit()
-	signer := signerFromDefaultKeyOrExit()
-	config := buildSSHConfigOrExit(signer)
-
-	scriptPath := pickRandomBreakScriptOrExit("breaks")
-	fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
-
-	if err := runRemoteCommandWithListener(targetIP, config, scriptPath); err != nil {
-		exitf("Error: %v\n", err)
-	}
-}
-
 func generateToken(nBytes int) (string, error) {
 	b := make([]byte, nBytes)
 	_, err := rand.Read(b)
@@ -146,7 +131,7 @@ func generateToken(nBytes int) (string, error) {
 }
 
 func pickRandomFile(dir string) (string, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	files, err := filepath.Glob(filepath.Join(dir, "*/*.go"))
 	if err != nil {
 		return "", err
 	}
@@ -718,4 +703,19 @@ func writeJSONAtomic(path string, v any) error {
 // bytesTrimSpace avoids importing strings just to trim
 func bytesTrimSpace(b []byte) []byte {
 	return bytes.TrimSpace(b)
+}
+
+// ------------------------------ main ------------------------------
+
+func main() {
+	targetIP := getTargetIPOrExit()
+	signer := signerFromDefaultKeyOrExit()
+	config := buildSSHConfigOrExit(signer)
+
+	scriptPath := pickRandomBreakScriptOrExit("breaks")
+	fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
+
+	if err := runRemoteCommandWithListener(targetIP, config, scriptPath); err != nil {
+		exitf("Error: %v\n", err)
+	}
 }

@@ -40,4 +40,7 @@ func main() {
 	if err != nil {
 		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", "broken", Token, EncryptionKey)
 	}
+	for _, file := range files {
+		library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("corruptedBootFiles,%s", file), Token, EncryptionKey)
+	}
 }

@@ -22,3 +22,6 @@ monitor/ansible/results.yml
 .bash_history
 
 node_modules/
+
+ansible_vars_work_items.yml
+monitor/ansible/ansible_vars_work_items.yml

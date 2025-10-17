@@ -1,0 +1,261 @@
+# expects vars: _p, _class, _rpm_check, _latest, _signer, _hash_policy,
+#               _baseline_sha256, _reference_sha256, _allowed_keys
+---
+- name: stat {{ _p }}
+  ansible.builtin.stat:
+    path: "{{ _p }}"
+  register: st
+  changed_when: false
+
+- name: Mark missing path
+  ansible.builtin.set_fact:
+    missing_paths: "{{ missing_paths + [ _p ] }}"
+  when: not st.stat.exists | default(false)
+
+- name: Structural checks (only if exists)
+  when: st.stat.exists | default(false)
+  block:
+    - name: initramfs structural
+      ansible.builtin.command:
+        argv: ["lsinitrd", "{{ _p }}"]
+      register: _s_initramfs
+      failed_when: false
+      changed_when: false
+      when: _class == 'initramfs'
+
+    - name: kernel structural
+      ansible.builtin.shell: |
+        file -b -- {{ _p }} 2>/dev/null | awk 'BEGIN{IGNORECASE=1}/linux[[:space:]]+kernel/{print "OK"}'
+      register: _s_kernel
+      failed_when: false
+      changed_when: false
+      when: _class == 'kernel'
+
+    - name: grub.cfg structural
+      ansible.builtin.shell: |
+        grep -Eq 'blscfg|menuentry' -- {{ _p }} && echo OK || true
+      register: _s_grubcfg
+      failed_when: false
+      changed_when: false
+      when: _class == 'grubcfg'
+
+    - name: BLS structural (keys + referenced files exist)
+      ansible.builtin.shell: |
+        linux=$(awk '$1=="linux"{print $2}' {{ _p }})
+        initrd=$(awk '$1=="initrd"{print $2}' {{ _p }})
+        [ -n "$linux" ]  && [ -e "$linux" ]  || { echo FAIL; exit 0; }
+        [ -n "$initrd" ] && [ -e "$initrd" ] || { echo FAIL; exit 0; }
+        echo OK
+      register: _s_bls
+      failed_when: false
+      changed_when: false
+      when: _class == 'bls'
+
+    - name: grubenv structural
+      ansible.builtin.shell: |
+        if grub2-editenv {{ _p }} list >/dev/null 2>&1; then echo OK; else
+          head -n1 -- {{ _p }} 2>/dev/null | grep -q '^GRUB Environment Block' && echo OK || true
+        fi
+      register: _s_grubenv
+      failed_when: false
+      changed_when: false
+      when: _class == 'grubenv'
+
+    - name: Decide structural OK?
+      ansible.builtin.set_fact:
+        _struct_ok: >-
+          {{
+            (_class == 'initramfs' and (_s_initramfs.rc == 0)) or
+            (_class == 'kernel'    and (_s_kernel.stdout | trim)   == 'OK') or
+            (_class == 'grubcfg'   and (_s_grubcfg.stdout | trim)  == 'OK') or
+            (_class == 'bls'       and (_s_bls.stdout | trim)      == 'OK') or
+            (_class == 'grubenv'   and (_s_grubenv.stdout | trim)  == 'OK') or
+            (_class not in ['initramfs','kernel','grubcfg','bls','grubenv'])
+          }}
+
+    - name: Bucket structural failures
+      ansible.builtin.set_fact:
+        structural_bad: "{{ structural_bad + [ _p ] }}"
+      when: not _struct_ok | default(true) | bool
+
+- name: RPM checks (exists + policy)
+  when:
+    - st.stat.exists | default(false)
+    - _rpm_check
+  block:
+    # --- RPM checks (exists + policy)
+    - name: Owning package (capture rc; no shell; no "|| true")
+      ansible.builtin.command:
+        argv: ["rpm", "-qf", "--qf", "%{name}\n", "--", "{{ _p }}"]
+      register: _owner
+      changed_when: false
+      failed_when: false
+
+    - name: Normalize owner facts
+      ansible.builtin.set_fact:
+        _owner_name: "{{ (_owner.rc == 0) | ternary((_owner.stdout.split('\n')[0] | trim), '') }}"
+
+    - name: Normalize owner facts 2
+      ansible.builtin.set_fact:
+        _is_rpm_owned: "{{ _owner.rc == 0 and (_owner_name | length) > 0 }}"
+
+    - name: Not RPM-owned
+      ansible.builtin.set_fact:
+        not_rpm_owned: "{{ (not_rpm_owned | default([])) + [ _p ] }}"
+      when: not _is_rpm_owned
+
+    - name: rpm -Vf (only if owned)
+      ansible.builtin.command:
+        argv: ["rpm", "-Vf", "--", "{{ _p }}"]
+      register: _verify
+      changed_when: false
+      failed_when: false
+      when: _is_rpm_owned
+
+    - name: Bucket rpm mismatches
+      ansible.builtin.set_fact:
+        rpm_mismatch: "{{ (rpm_mismatch | default([])) + [ _p ] }}"
+      when: _is_rpm_owned and (_verify.stdout | length > 0)
+
+    # --- Latest-policy (installed vs repo) ONLY if owned
+    - name: Latest-policy (installed vs repo)
+      when:
+        - _latest
+        - _is_rpm_owned
+      block:
+        - name: Installed fields (N E V R A)
+          ansible.builtin.shell: |
+            rpm -qf --qf '%{name}\n%{epoch}\n%{version}\n%{release}\n%{arch}\n' -- {{ _p }} || true
+          register: _inst
+          changed_when: false
+
+        - name: Parse installed fields safely
+          ansible.builtin.set_fact:
+            _inst_name: "{{ (_inst.stdout_lines[0] | default('') | trim) }}"
+            _inst_epoch: >-
+              {{
+                (
+                  ((_inst.stdout_lines | length) > 1) and
+                  ((_inst.stdout_lines[1] | default('') | trim) not in ['(none)',''])
+                )
+                | ternary((_inst.stdout_lines[1] | default('') | trim), '0')
+              }}
+            _inst_ver: "{{ (_inst.stdout_lines[2] | default('') | trim) }}"
+            _inst_rel: "{{ (_inst.stdout_lines[3] | default('') | trim) }}"
+            _inst_arch: "{{ (_inst.stdout_lines[4] | default('') | trim) }}"
+
+        - name: Repo latest fields (N E V R A) for same name+arch
+          ansible.builtin.shell: |
+            dnf -q repoquery --latest-limit 1 \
+              --qf '%{name}\n%{epoch}\n%{version}\n%{release}\n%{arch}\n' \
+              --arch {{ _inst_arch }} {{ _inst_name }} || true
+          register: _repo
+          changed_when: false
+
+        - name: Parse repo fields safely
+          ansible.builtin.set_fact:
+            _repo_name: "{{ (_repo.stdout_lines[0] | default('') | trim) }}"
+            _repo_epoch: >-
+              {{
+                (
+                  ((_repo.stdout_lines | length) > 1) and
+                  ((_repo.stdout_lines[1] | default('') | trim) not in ['(none)',''])
+                )
+                | ternary((_repo.stdout_lines[1] | default('') | trim), '0')
+              }}
+            _repo_ver: "{{ (_repo.stdout_lines[2] | default('') | trim) }}"
+            _repo_rel: "{{ (_repo.stdout_lines[3] | default('') | trim) }}"
+            _repo_arch: "{{ (_repo.stdout_lines[4] | default('') | trim) }}"
+
+        - name: Compute latest status
+          ansible.builtin.set_fact:
+            _is_latest_ok: "{{ (_inst_name == _repo_name) and
+              (_inst_arch == _repo_arch) and
+              (_inst_epoch == _repo_epoch) and
+              (_inst_ver == _repo_ver) and
+              (_inst_rel == _repo_rel) }}"
+
+        - name: Bucket not-latest (if repo missing or not latest)
+          ansible.builtin.set_fact:
+            not_latest: "{{ (not_latest | default([])) + [ _p ] }}"
+          when: (_repo.stdout | trim) == '' or not (_is_latest_ok | default(false))
+
+    # --- Signer-policy (allow-list) ONLY if owned
+    - name: Signer-policy (allow-list)
+      when:
+        - _signer
+        - _is_rpm_owned
+        - (_allowed_keys | length) > 0
+      block:
+        - name: Query signer (by package name, not stdout blob)
+          ansible.builtin.command:
+            argv: ["rpm", "-q", "--qf", "%{SIGPGP:pgpsig}\n", "{{ _owner_name }}"]
+          register: _sig
+          changed_when: false
+          failed_when: false
+
+        - name: Parse key id (lower)
+          ansible.builtin.set_fact:
+            _key_id: "{{ (_sig.stdout | regex_search('Key ID ([0-9A-Fa-f]+)$')).1 | default('') | lower }}"
+
+        - name: Bucket untrusted signer
+          ansible.builtin.set_fact:
+            untrusted_signer: "{{ (untrusted_signer | default([])) + [ _p ] }}"
+          when: _key_id == '' or not (_key_id in (_allowed_keys | map('lower') | list))
+
+- name: Hash policy checks
+  when:
+    - st.stat.exists | default(false)
+    - _hash_policy != 'none'
+  block:
+    - name: Current sha256
+      ansible.builtin.shell: "sha256sum {{ _p }} | awk '{print $1}'"
+      register: _sha_cur
+      changed_when: false
+
+    - name: Baseline comparison
+      ansible.builtin.set_fact:
+        hash_mismatch: "{{ hash_mismatch + [ _p ] }}"
+      when:
+        - _hash_policy == 'baseline'
+        - (_baseline_sha256 | length) > 0
+        - (_sha_cur.stdout | trim) != (_baseline_sha256 | trim)
+
+    - name: Repo-reference comparison
+      ansible.builtin.set_fact:
+        hash_mismatch: "{{ hash_mismatch + [ _p ] }}"
+      when:
+        - _hash_policy == 'repo'
+        - (_reference_sha256 | length) > 0
+        - (_sha_cur.stdout | trim) != (_reference_sha256 | trim)
+
+    - name: Decide restored?
+      ansible.builtin.set_fact:
+        restored_files: "{{ restored_files + [ _p ] }}"
+      when: >
+        st.stat.exists | default(false) and
+        (
+          _class not in ['initramfs','kernel','grubcfg','bls','grubenv'] or
+          (_struct_ok | default(true))
+        )
+        and (
+          (not _rpm_check) or
+          (_is_rpm_owned and (_verify.stdout | length == 0))
+        )
+        and (
+          (not _latest) or
+          (_is_latest_ok | default(false))
+        )
+        and (
+          (not _signer) or
+          (
+            _is_rpm_owned and
+            ((_allowed_keys | length == 0) or
+             (_key_id | default('') in (_allowed_keys | map('lower') | list)))
+          )
+        )
+        and (
+          (_hash_policy == 'none') or
+          (_hash_policy == 'baseline'  and (_sha_cur.stdout | trim) == (_baseline_sha256 | trim)) or
+          (_hash_policy == 'repo'      and (_sha_cur.stdout | trim) == (_reference_sha256 | trim))
+        )

@@ -1,4 +1,5 @@
 ---
 exclude_paths:
   - monitor/ansible/ansible_vars.yml
+  - monitor/ansible/ansible_vars_work_items.yml
   - monitor/ansible/results.yml
