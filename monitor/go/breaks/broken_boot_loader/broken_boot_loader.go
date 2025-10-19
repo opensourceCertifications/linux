@@ -78,5 +78,5 @@ func main() {
 		log.Fatalf("❌ error: %v", err)
 	}
 	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupted kernel file %s", corruptedFile), Token, EncryptionKey)
-	library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("corruptedBootFiles,%s", file), Token, EncryptionKey)
+	library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("BrokenFiles,%s", file), Token, EncryptionKey)
 }

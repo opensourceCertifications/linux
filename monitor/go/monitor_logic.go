@@ -55,7 +55,7 @@ func getTargetIPOrExit() string {
 func signerFromDefaultKeyOrExit() ssh.Signer {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		exitf("Error: could not resolve home directory\n")
+		exitf("Error: could not resolve home directory\n%s", err)
 	}
 	sshDir := filepath.Join(home, ".ssh")
 	keyPath := filepath.Join(sshDir, "id_ed25519")
@@ -121,21 +121,6 @@ func pickRandomBreakScriptOrExit(dir string) string {
 	return p
 }
 
-// ------------------------------ main ------------------------------
-
-func main() {
-	targetIP := getTargetIPOrExit()
-	signer := signerFromDefaultKeyOrExit()
-	config := buildSSHConfigOrExit(signer)
-
-	scriptPath := pickRandomBreakScriptOrExit("breaks")
-	fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
-
-	if err := runRemoteCommandWithListener(targetIP, config, scriptPath); err != nil {
-		exitf("Error: %v\n", err)
-	}
-}
-
 func generateToken(nBytes int) (string, error) {
 	b := make([]byte, nBytes)
 	_, err := rand.Read(b)
@@ -146,7 +131,7 @@ func generateToken(nBytes int) (string, error) {
 }
 
 func pickRandomFile(dir string) (string, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	files, err := filepath.Glob(filepath.Join(dir, "*/*.go"))
 	if err != nil {
 		return "", err
 	}
@@ -271,7 +256,13 @@ func scpToRemote(ip, localPath, remotePath string) error {
 		fmt.Sprintf("root@%s:%s", ip, remotePath),
 	)
 	// Minimal, explicit env to avoid hostile GOFLAGS/etc. leaking in (optional here)
-	cmd.Env = append([]string{}, os.Environ()...)
+	cmd.Env = []string{
+		"PATH=/usr/bin:/bin", // enough to resolve ld/rt deps used by scp
+		"HOME=" + home,       // some libs consult HOME; harmless and predictable here
+		"LANG=C", "LC_ALL=C", // stable parsing/messages
+		// Note: we intentionally do NOT pass LD_PRELOAD/LD_LIBRARY_PATH/DYLD_*,
+		// SSH_AUTH_SOCK, SSH_ASKPASS, etc.
+	}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 
 	return cmd.Run()
@@ -301,7 +292,7 @@ func runRemoteBinary(ip string, config *ssh.ClientConfig, remotePath string) err
 	}()
 
 	// chmod, then start in background; log to /tmp/break_tool.log
-	cmd := fmt.Sprintf("chmod +x %s && nohup sudo %s >/tmp/break_tool.log 2>&1 &", remotePath, remotePath)
+	cmd := fmt.Sprintf("chmod +x %s && nohup %s >/tmp/break_tool.log 2>&1 &", remotePath, remotePath)
 	session.Stdout = os.Stdout
 	session.Stderr = os.Stderr
 	return session.Run(cmd)
@@ -345,6 +336,7 @@ func setupListenerAndSecrets() (ln net.Listener, port int, token, encKey string,
 		return nil, 0, "", "", fmt.Errorf("enc key: %w", err)
 	}
 
+	// SUGGESTION: remove sensitive logs in production
 	fmt.Printf("🔑 Generated token: %s\n", token)
 	fmt.Printf("📡 Listening on %s:%d\n", mon, port)
 	fmt.Printf("🔑 Generated encryption key: %s\n", encKey)
@@ -357,6 +349,8 @@ func deployRemote(ip string, cfg *ssh.ClientConfig, srcPath, monitorIP string, p
 	if err != nil {
 		return err
 	}
+	//SUGGESTION: make random remote srcPath
+	// delete after execution.
 	const remoteBin = "/tmp/break_tool"
 	if err := scpToRemote(ip, localBin, remoteBin); err != nil {
 		return fmt.Errorf("scp failed: %w", err)
@@ -418,6 +412,10 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		}
 	}()
 
+	// SUGGESTION: this can only handle one message at a time; if you want
+	// multiple concurrent messages, spawn goroutines here.
+	// For simplicity, we handle one message at a time in sequence.
+	// bufio.Reader for easier reading
 	reader := bufio.NewReader(conn)
 
 	for {
@@ -441,6 +439,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		}
 
 		// Step 2: Read the encrypted message
+		// SUGGESTION: set a max length to avoid DoS
 		encryptedData := make([]byte, msgLen)
 		_, err = io.ReadFull(reader, encryptedData)
 		if err != nil {
@@ -466,16 +465,17 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 		if msg.Token == expectedToken {
 			fmt.Println("🔐 Token check: ✅ valid")
 			msg.TokenCheck = true
+
+			// Step 6: Process message
+			if err := AppendChaosToReport(msg); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to append to report: %v\n", err)
+			}
 		} else {
 			fmt.Println("🔐 Token check: ❌ invalid")
 			msg.TokenCheck = false
 		}
 
-		// Step 6: Process message
-		if err := AppendChaosToReport(msg); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to append to report: %v\n", err)
-		}
-
+		// Step 7: Handle based on status
 		switch msg.Status {
 		case "operation_complete":
 			if msg.TokenCheck {
@@ -511,7 +511,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 
 			key := parts[0]
 			value := parts[1]
-			filePath := os.ExpandEnv("../ansible/ansible_vars.yml")
+			filePath := os.Getenv("ANSIBLE_VARS_PATH")
 
 			// Step 1: Load existing YAML if present
 			vars := make(map[string][]string)
@@ -718,4 +718,19 @@ func writeJSONAtomic(path string, v any) error {
 // bytesTrimSpace avoids importing strings just to trim
 func bytesTrimSpace(b []byte) []byte {
 	return bytes.TrimSpace(b)
+}
+
+// ------------------------------ main ------------------------------
+
+func main() {
+	targetIP := getTargetIPOrExit()
+	signer := signerFromDefaultKeyOrExit()
+	config := buildSSHConfigOrExit(signer)
+
+	scriptPath := pickRandomBreakScriptOrExit("breaks")
+	fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
+
+	if err := runRemoteCommandWithListener(targetIP, config, scriptPath); err != nil {
+		exitf("Error: %v\n", err)
+	}
 }
