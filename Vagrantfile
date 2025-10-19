@@ -111,6 +111,7 @@ Vagrant.configure('2') do |config|
     monitor.vm.provision 'shell', privileged: true, inline: <<-SHELL
       echo 'export TESTENV_ADDRESS=#{testenv_ip}' >> /etc/environment
       echo 'export MONITOR_ADDRESS=#{monitor_ip}' >> /etc/environment
+      echo 'export ANSIBLE_VARS_PATH=/vagrant/monitor/ansible/ansible_vars.yml' >> /etc/environment
     SHELL
   end
 
