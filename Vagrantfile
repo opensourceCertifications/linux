@@ -48,9 +48,9 @@ Vagrant.configure('2') do |config|
   # -----------------------------
   # Shared values (used by both VMs)
   # -----------------------------
-  monitor_ip = '192.168.56.10'     # host-only/private IP for the monitor VM
-  testenv_ip = '192.168.56.11'     # host-only/private IP for the testenv VM
-  shared_path = './transfer'       # local folder to exchange small artifacts (keys, etc.)
+  monitor_ip = '192.168.121.10'     # host-only/private IP for the monitor VM
+  testenv_ip = '192.168.121.11'     # host-only/private IP for the testenv VM
+  shared_path = './transfer' # local folder to exchange small artifacts (keys, etc.)
   host_mount  = '/vagrant_transfer' # mount point inside the VMs
 
   # Ensure the shared folder exists on the host before mounting
@@ -61,22 +61,35 @@ Vagrant.configure('2') do |config|
   # -----------------------------
   %w[monitor testenv].each do |name|
     config.vm.define name do |m|
-      m.vm.provider 'virtualbox' do |vb|
-        vb.name = "yl-#{name}"      # nice, stable name in VirtualBox UI
-        vb.memory = 2048            # t3.small-equivalent memory
-        vb.cpus   = 2               # t3.small-equivalent vCPU count
+      #      m.vm.provider 'virtualbox' do |vb|
+      #        vb.name = "yl-#{name}"      # nice, stable name in VirtualBox UI
+      #        vb.memory = 2048            # t3.small-equivalent memory
+      #        vb.cpus   = 2               # t3.small-equivalent vCPU count
+      #
+      #        # Make the guest behave closer to KVM/Nitro for more realistic perf
+      #        vb.customize ['modifyvm', :id, '--paravirtprovider', 'kvm']
+      #
+      #        # Favor virtio NICs over e1000 for lower overhead
+      #        vb.customize ['modifyvm', :id, '--nictype1', 'virtio']
+      #        vb.customize ['modifyvm', :id, '--nictype2', 'virtio'] # (if a second NIC is used)
+      #
+      #        # Soft limit CPU time to simulate baseline throttling on dev laptops
+      #        # (0–100; 60–70 ~ “baseline with occasional bursts”)
+      #        vb.customize ['modifyvm', :id, '--cpuexecutioncap', '70']
+      #      end
 
-        # Make the guest behave closer to KVM/Nitro for more realistic perf
-        vb.customize ['modifyvm', :id, '--paravirtprovider', 'kvm']
-
-        # Favor virtio NICs over e1000 for lower overhead
-        vb.customize ['modifyvm', :id, '--nictype1', 'virtio']
-        vb.customize ['modifyvm', :id, '--nictype2', 'virtio'] # (if a second NIC is used)
-
-        # Soft limit CPU time to simulate baseline throttling on dev laptops
-        # (0–100; 60–70 ~ “baseline with occasional bursts”)
-        vb.customize ['modifyvm', :id, '--cpuexecutioncap', '70']
+      m.vm.provider :libvirt do |lv|
+        lv.memory = 2048
+        lv.cpus   = 2
+        lv.memorybacking :access, mode: 'shared'
       end
+      m.vm.synced_folder shared_path, host_mount, type: 'virtiofs'
+
+      #      m.vm.synced_folder shared_path, host_mount,
+      #        type: "9p",
+      #        accessmode: "mapped",
+      #        access: "vagrant", group: "vagrant",
+      #        mount_options: ["trans=virtio","version=9p2000.L"]
     end
   end
 
@@ -87,7 +100,7 @@ Vagrant.configure('2') do |config|
     monitor.vm.box = 'almalinux/9'                      # base image
     monitor.vm.hostname = 'monitor'                     # /etc/hostname
     monitor.vm.network 'private_network', ip: monitor_ip # host-only network
-    monitor.vm.synced_folder shared_path, host_mount # mount host ./transfer -> /vagrant_transfer
+    # monitor.vm.synced_folder shared_path, host_mount # mount host ./transfer -> /vagrant_transfer
 
     # Create an SSH keypair (non-root) and drop the public key into the shared folder
     # so testenv can pick it up and authorize monitor access.
@@ -122,7 +135,7 @@ Vagrant.configure('2') do |config|
     testenv.vm.box = 'almalinux/9' # base image
     testenv.vm.hostname = 'testenv'
     testenv.vm.network 'private_network', ip: testenv_ip
-    testenv.vm.synced_folder shared_path, host_mount
+    # testenv.vm.synced_folder shared_path, host_mount
 
     # Update/upgrade, then wait until monitor has written its public key
     # into the shared folder; once it exists, append to authorized_keys.
@@ -135,6 +148,9 @@ Vagrant.configure('2') do |config|
         if [ "$(wc -l < #{host_mount}/monitor.pub)" -gt 0 ]; then
           # Append the key and fix permissions
           echo "Monitor public key found, installing..." >> /home/vagrant/ssh_key_install.loging
+          echo "Monitor public key found, installing..." >> /vagrant/ssh_key_install.loging
+          echo "#{host_mount}" >> /home/vagrant/ssh_key_install.loging
+          echo "#{host_mount}" >> /home/vagrant/ssh_key_install.loging
           cat #{host_mount}/monitor.pub >> $HOME/.ssh/authorized_keys
           break
         else
@@ -142,6 +158,7 @@ Vagrant.configure('2') do |config|
           sleep 2
         fi
       done
+      rm #{host_mount}/monitor.pub
     SHELL
   end
 end

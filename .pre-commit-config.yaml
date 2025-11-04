@@ -14,14 +14,23 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
 
+  #  - repo: local
+  #    hooks:
+  #      - id: vagrant-validate
+  #        name: vagrant validate
+  #        entry: vagrant validate --ignore-provider
+  #        language: system
+  #        pass_filenames: false
+  #        files: ^Vagrantfile$
+
   - repo: local
     hooks:
-      - id: vagrant-validate
-        name: vagrant validate
-        entry: vagrant validate --ignore-provider
+      - id: vagrant-validate-libvirt
+        name: vagrant validate (libvirt)
         language: system
         pass_filenames: false
         files: ^Vagrantfile$
+        entry: bash -lc 'VAGRANT_DEFAULT_PROVIDER=libvirt vagrant validate --no-color'
 
   - repo: https://github.com/ansible/ansible-lint
     rev: v25.9.0
@@ -86,13 +95,13 @@ repos:
         require_serial: true # this hook edits files; avoid parallel runs
 
       # Validate Vagrantfile (you already had a similar one; keep one copy)
-      - id: vagrant-validate
-        name: Validate Vagrantfile
-        description: Runs vagrant validate to validate Vagrantfiles
-        language: system
-        entry: vagrant validate --ignore-provider
-        pass_filenames: false
-        files: ^Vagrantfile$
+      #      - id: vagrant-validate
+      #        name: Validate Vagrantfile
+      #        description: Runs vagrant validate to validate Vagrantfiles
+      #        language: system
+      #        entry: vagrant validate --ignore-provider
+      #        pass_filenames: false
+      #        files: ^Vagrantfile$
 
       - id: gomarkdoc
         name: gomarkdoc (generate package READMEs)
