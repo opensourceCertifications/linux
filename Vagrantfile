@@ -55,6 +55,10 @@ Vagrant.configure('2') do |config|
 
   # Ensure the shared folder exists on the host before mounting
   FileUtils.mkdir_p(shared_path)
+  # Force the project root -> /vagrant using virtiofs on libvirt
+  config.vm.provider :libvirt do |_lv, override|
+    override.vm.synced_folder '.', '/vagrant', type: 'virtiofs'
+  end
 
   # -----------------------------
   # Provider-level defaults for both VMs
