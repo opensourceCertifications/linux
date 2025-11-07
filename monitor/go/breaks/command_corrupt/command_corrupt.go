@@ -36,7 +36,7 @@ func main() {
 	}
 	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("files to be corrupted: %s", files), Token, EncryptionKey)
 	for _, file := range files {
-		_, err := library.CorruptFile(file, 100) // Corrupt 10% of the file
+		err := library.CorruptFile(file, 100) // Corrupt 10% of the file
 		if err != nil {
 			library.SendMessage(MonitorIP, MonitorPort, "chaos_report", "broken", Token, EncryptionKey)
 		}

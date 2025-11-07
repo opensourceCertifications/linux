@@ -6,7 +6,7 @@
 import "chaos-agent/shared/library"
 ```
 
-Package library provides functions to corrupt files by flipping bits and adding an offset.
+Package library provides file corruption utilities.
 
 Package library provides file manipulation utilities. It includes functions for cyclically jumbling file contents while preserving metadata. It ensures safe file operations by preventing path traversal and symlink attacks. It is designed for use in controlled environments where file integrity is critical.
 
@@ -14,8 +14,7 @@ Package library provides utility functions for file selection. It includes funct
 
 ## Index
 
-- [func CorruptFile\(path string, percent int\) \(string, error\)](<#CorruptFile>)
-- [func CorruptPercent\(data \[\]byte, percent int\) error](<#CorruptPercent>)
+- [func CorruptFile\(path string, percent int\) \(retErr error\)](<#CorruptFile>)
 - [func CyclicJumble\(paths \[\]string\) error](<#CyclicJumble>)
 - [func EncryptMessage\(message string, encryptionKey string\) \(\[\]byte, error\)](<#EncryptMessage>)
 - [func PickRandomBinaries\(\) \(\[\]string, error\)](<#PickRandomBinaries>)
@@ -24,22 +23,25 @@ Package library provides utility functions for file selection. It includes funct
 
 
 <a name="CorruptFile"></a>
-## func [CorruptFile](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L64>)
+## func [CorruptFile](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L28>)
 
 ```go
-func CorruptFile(path string, percent int) (string, error)
+func CorruptFile(path string, percent int) (retErr error)
 ```
 
-CorruptFile corrupts a file at the given path by flipping bits and adding an offset to a percentage of its bytes. It returns the path of the corrupted file or an error if something goes wrong.
+CorruptFile overwrites \~percent% of a file's bytes in\-place using cryptographically random data. Contract:
 
-<a name="CorruptPercent"></a>
-## func [CorruptPercent](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/corrupt_file.go#L19>)
+- percent \< 0 \-\> error
+- percent == 0 \-\> no\-op
+- 0 \< percent \< 100 \-\> overwrite exactly k = max\(1, floor\(size\*percent/100\)\) unique byte positions
+- percent \>= 100 \-\> full overwrite \(exactly size bytes\), without changing file size
 
-```go
-func CorruptPercent(data []byte, percent int) error
-```
+Implementation notes:
 
-CorruptPercent overwrites approximately percent% of bytes \(at least 1 if percent\>0\).
+- No full\-file loads; O\(k\) memory where k is the number of bytes to corrupt.
+- Uses CSPRNG for both index selection and bytes.
+- Coalesces adjacent positions to reduce syscalls.
+- Restores mtime \(atime best\-effort via mtime for portability\).
 
 <a name="CyclicJumble"></a>
 ## func [CyclicJumble](<https://github.com/opensourceCertifications/linux/blob/main/monitor/go/shared/library/file_jumble.go#L44>)

@@ -72,11 +72,11 @@ func main() {
 		log.Fatalf("random index failed: %v", err)
 	}
 	file := vmlinuzFiles[idx]
-	corruptedFile, err := library.CorruptFile(file, 100)
+	err = library.CorruptFile(file, 100)
 	if err != nil {
 		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupting kernel failed: %v", err), Token, EncryptionKey)
 		log.Fatalf("❌ error: %v", err)
 	}
-	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupted kernel file %s", corruptedFile), Token, EncryptionKey)
+	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupted kernel file %s", file), Token, EncryptionKey)
 	library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("BrokenFiles,%s", file), Token, EncryptionKey)
 }
