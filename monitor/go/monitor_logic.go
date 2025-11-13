@@ -488,7 +488,7 @@ func handleChaosConnection(conn net.Conn, expectedToken string, encryptionKey st
 			// just print the message
 			fmt.Printf("📢 General: %s", msg.Message)
 
-		case "chaos_report":
+		case "chaos_report", "error":
 			fmt.Printf("🐛 Chaos Report: %s", msg.Message)
 			logPath := "/tmp/chaos_reports.log"
 			f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
