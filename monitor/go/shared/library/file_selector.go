@@ -174,7 +174,6 @@ func PickRandomBinaries() ([]string, error) {
 	all := make([]string, 0, 1024)
 
 	var aggErr error
-	// for _, dir := range []string{"/usr/local/bin", "/usr/bin", "/usr/local/sbin", "/usr/local/sbing", "/usr/sbin"} {
 	for _, dir := range dirs {
 		if err := collectBinariesFromDir(dir, seen, &all); err != nil {
 			aggErr = errors.Join(aggErr, err)
