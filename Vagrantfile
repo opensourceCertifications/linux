@@ -65,23 +65,6 @@ Vagrant.configure('2') do |config|
   # -----------------------------
   %w[monitor testenv].each do |name|
     config.vm.define name do |m|
-      #      m.vm.provider 'virtualbox' do |vb|
-      #        vb.name = "yl-#{name}"      # nice, stable name in VirtualBox UI
-      #        vb.memory = 2048            # t3.small-equivalent memory
-      #        vb.cpus   = 2               # t3.small-equivalent vCPU count
-      #
-      #        # Make the guest behave closer to KVM/Nitro for more realistic perf
-      #        vb.customize ['modifyvm', :id, '--paravirtprovider', 'kvm']
-      #
-      #        # Favor virtio NICs over e1000 for lower overhead
-      #        vb.customize ['modifyvm', :id, '--nictype1', 'virtio']
-      #        vb.customize ['modifyvm', :id, '--nictype2', 'virtio'] # (if a second NIC is used)
-      #
-      #        # Soft limit CPU time to simulate baseline throttling on dev laptops
-      #        # (0–100; 60–70 ~ “baseline with occasional bursts”)
-      #        vb.customize ['modifyvm', :id, '--cpuexecutioncap', '70']
-      #      end
-
       m.vm.provider :libvirt do |lv|
         lv.memory = 2048
         lv.cpus   = 2
@@ -103,6 +86,9 @@ Vagrant.configure('2') do |config|
   config.vm.define 'monitor' do |monitor|
     monitor.vm.box = 'almalinux/9'                      # base image
     monitor.vm.hostname = 'monitor'                     # /etc/hostname
+    monitor.vm.network 'private_network',
+                       libvirt__network_name: 'vagrant-libvirt',
+                       type: 'dhcp'
     monitor.vm.network 'private_network', ip: monitor_ip # host-only network
     # monitor.vm.synced_folder shared_path, host_mount # mount host ./transfer -> /vagrant_transfer
 
@@ -138,6 +124,9 @@ Vagrant.configure('2') do |config|
   config.vm.define 'testenv' do |testenv|
     testenv.vm.box = 'almalinux/9' # base image
     testenv.vm.hostname = 'testenv'
+    testenv.vm.network 'private_network',
+                       libvirt__network_name: 'vagrant-libvirt',
+                       type: 'dhcp'
     testenv.vm.network 'private_network', ip: testenv_ip
     # testenv.vm.synced_folder shared_path, host_mount
 
