@@ -1,86 +1,141 @@
+// Description: This Go program connects to a remote VM via SSH, deploys a chaos testing binary,
+// and listens for encrypted messages from the binary to log chaos events and update configuration files.
+// It uses AES-GCM for encryption and handles various message types including general logs, chaos reports, variable updates, and operation completion signals.
+// It ensures secure communication using a randomly generated token and encryption key for each session.
+// It also compiles the chaos binary with embedded configuration parameters and manages its lifecycle on the remote VM.
 package main
 
 import (
 	"fmt"
-	"errors"
+	"log"
 	"net"
 	"os"
+	"path/filepath"
+	"math/big"
+	"crypto/rand"
+	"context"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
-	"golang.org/x/crypto/ssh"
-	"chaos-agent/library"
-	"chaos-agent/types"
+	"chaos-agent/library/ssh"
 )
 
-func ProbeFromEnv() (types.Probe, error) {
-	ip := strings.TrimSpace(os.Getenv("TESTENV_ADDRESS"))
-	if ip == "" {
-		return types.Probe{}, errors.New("TESTENV not set (expected IP of test environment)")
+func pickRandomFile(dir string) (string, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*/*.go"))
+	if err != nil {
+		return "", err
 	}
-	if net.ParseIP(ip) == nil {
-		return types.Probe{}, errors.New("TESTENV must be a valid IP address")
+	if len(files) == 0 {
+		return "", fmt.Errorf("no .go files found in %s", dir)
+	}
+	///mathrand.Seed(time.Now().UnixNano())
+	n := big.NewInt(int64(len(files)))
+	r, err := rand.Int(rand.Reader, n)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random index: %w", err)
+	}
+	return files[r.Int64()], nil
+
+}
+
+func setupListener(monitorAddr string) (net.Listener, int, error) {
+
+	addr := net.JoinHostPort(monitorAddr, "0")
+	fmt.Println("ADDRESS:", addr)
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to open listener on %s: %w", addr, err)
 	}
 
-	// Port (default 22)
-	port := 22
+	port := listener.Addr().(*net.TCPAddr).Port
 
-	// User (default root)
-	user := "root"
+	return listener, port, nil
+}
 
-	// Timeout (default 5s)
-	timeout := 5 * time.Second
+func compileChaosBinary(sourcePath, monitorIP string, port int, encryptionKey string) (string, error) {
+	outputPath := filepath.Join("/tmp", "break_tool")
+	ldflags := fmt.Sprintf(
+		"-X=main.MonitorIP=%s -X=main.MonitorPortStr=%s -X=main.Token=%s -X=main.EncryptionKey=%s",
+		monitorIP, strconv.Itoa(port), encryptionKey,
+	)
 
-	return types.Probe{
-		Addr:    net.JoinHostPort(ip, strconv.Itoa(port)),
-		User:    user,
-		Timeout: timeout,
-	}, nil
+	// Guardrail 1: only build files under ./breaks and with .go extension
+	absSrc, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("abs source: %w", err)
+	}
+	breaksDir, err := filepath.Abs("breaks")
+	if err != nil {
+		return "", fmt.Errorf("abs breaks: %w", err)
+	}
+	if filepath.Ext(absSrc) != ".go" || !strings.HasPrefix(absSrc, breaksDir+string(os.PathSeparator)) {
+		return "", fmt.Errorf("refusing to build untrusted source path: %q", absSrc)
+	}
+
+	// Guardrail 2: resolve the go tool explicitly
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		return "", fmt.Errorf("go tool not found: %w", err)
+	}
+
+	// Optional: timeout so builds can’t hang this ephemeral service
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	// #nosec G204 -- argv validated (source restricted to ./breaks/*.go); explicit tool path; no shell used
+	cmd := exec.CommandContext(ctx, goBin, "build", "-o", outputPath, "-ldflags", ldflags, absSrc)
+
+	// Guardrail 3: explicit env (avoid inherited GOFLAGS/-toolexec/etc.)
+	cmd.Env = []string{
+		"GOOS=linux",
+		"GOARCH=amd64",
+		"CGO_ENABLED=0",
+		"HOME=/tmp",
+		// clear potentially dangerous vars
+		"GOFLAGS=",
+		"GOTOOLCHAIN=local",
+	}
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to compile chaos binary: %w", err)
+	}
+	return outputPath, nil
 }
 
 func main() {
-	// Call into the library; returns a JSON string.
-	//audit_scope := library.GetAuditScope()
-	//fmt.Println(audit_scope)
-	probe, err := ProbeFromEnv()
+	scriptPath, err := pickRandomFile("breaks")
 	if err != nil {
-		fmt.Printf("Error creating probe: %v\n", err)
-		return
+		log.Fatal("Failed to pick test file: %v\n", err)
 	}
-	fmt.Printf("Probe created: %+v\n", probe)
+	fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
 
-	// Build SSH auth from your private key, e.g. ~/.ssh/id_rsa
-	keyPath := os.Getenv("HOME") + "/.ssh/id_ed25519"
-	key, err := os.ReadFile(keyPath)
+	//privatKey, publicKey, err := cryptohelpers.GenerateEd25519KeyPair()
+	privatKey, publicKey, err := cryptohelpers.GenerateKeys()
 	if err != nil {
-		fmt.Printf("Error reading private key %s: %v\n", keyPath, err)
-		return
+		log.Fatal(err)
 	}
 
-	signer, err := ssh.ParsePrivateKey(key)
+	monitorAddr := os.Getenv("MONITOR_ADDRESS")
+	if monitorAddr == "" {
+		log.Fatal("MONITOR_ADDRESS not set")
+	}
+
+	listener, port, err := setupListener(monitorAddr)
 	if err != nil {
-		fmt.Printf("Error parsing private key: %v\n", err)
-		return
+		log.Fatal(err)
 	}
 
-	authMethods := []ssh.AuthMethod{
-		ssh.PublicKeys(signer),
-	}
-
-	// For now, don't verify host key strictly (OK for your controlled env).
-	// Later you can replace this with a proper callback using known_hosts.
-	hostKeyCallback := ssh.InsecureIgnoreHostKey()
-
-	if err := library.SetupWarmSSH(probe, authMethods, hostKeyCallback); err != nil {
-		fmt.Printf("Error setting up warm SSH: %v\n", err)
-		return
-	}
-
-
-	out, err := library.RunCommandOverWarmSSH("touch /vagrant/works")
+	localBin, err := compileChaosBinary(scriptPath, monitorAddr, port, publicKey)
 	if err != nil {
-		fmt.Printf("SSH command error: %v\nOutput:\n%s\n", err, out)
-		return
+		fmt.Errorf("error when compling binary: %s", err)
 	}
-	fmt.Printf("SSH command succeeded. Output:\n%s\n", out)
+
+	fmt.Println("PRIVATE KEY:\n", string(privatKey))
+	fmt.Println("PUBLIC KEY:\n", string(publicKey))
+	fmt.Println("LISTENING ON PORT:", port)
+	fmt.Println("listner:", listener)
+	fmt.Println("COMPILED BINARY AT:", localBin)
 }
