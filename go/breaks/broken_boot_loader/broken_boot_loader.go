@@ -34,6 +34,7 @@ func init() {
 	if err != nil {
 		log.Fatalf("failed to generate token: %v", err)
 	}
+	library.SendMessage(MonitorIP, MonitorPort, "init", Token, Token, EncryptionKey)
 }
 
 // randIndex returns a uniform random int in [0, n).

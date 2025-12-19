@@ -274,41 +274,44 @@ func handleChaosConnection(plaintext string) string {
 
 	// Step 3: Handle based on status
 	switch msg.Status {
-	case "operation_complete":
-		if msg.TokenCheck {
-			fmt.Println("✅ Operation completed, continuing to listen for new messages.")
-			return "complete"
-		}
-		fmt.Println("❌ Operation_complete received but token check failed")
-		return ""
-
-	case "general":
-		fmt.Printf("📢 General: %s\n", msg.Message)
-		return ""
-
-	case "chaos_report", "error":
-		fmt.Printf("🐛 Chaos Report: %s\n", msg.Message)
-		logPath := "/tmp/chaos_reports.log"
-		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "log open error: %v\n", err)
+		case "init":
+			fmt.Printf("🚀 Init message received: %s\n", msg.Message)
 			return ""
-		}
-		if _, err := f.Write(append([]byte(plaintext), '\n')); err != nil {
-			fmt.Fprintf(os.Stderr, "log write error: %v\n", err)
-		}
-		_ = f.Close()
-		return ""
+		case "operation_complete":
+			if msg.TokenCheck {
+				fmt.Println("✅ Operation completed, continuing to listen for new messages.")
+				return "complete"
+			}
+			fmt.Println("❌ Operation_complete received but token check failed")
+			return ""
 
-	case "variable":
-		// ... your existing variable handling ...
-		// make sure every `break` becomes `return ""` in this case
-		// (because you're not inside a loop anymore)
-		return ""
+		case "general":
+			fmt.Printf("📢 General: %s\n", msg.Message)
+			return ""
 
-	default:
-		fmt.Printf("⚠️ Unknown message type: %s\n", msg.Status)
-		return ""
+		case "chaos_report", "error":
+			fmt.Printf("🐛 Chaos Report: %s\n", msg.Message)
+			logPath := "/tmp/chaos_reports.log"
+			f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "log open error: %v\n", err)
+				return ""
+			}
+			if _, err := f.Write(append([]byte(plaintext), '\n')); err != nil {
+				fmt.Fprintf(os.Stderr, "log write error: %v\n", err)
+			}
+			_ = f.Close()
+			return ""
+
+		case "variable":
+			// ... your existing variable handling ...
+			// make sure every `break` becomes `return ""` in this case
+			// (because you're not inside a loop anymore)
+			return ""
+
+		default:
+			fmt.Printf("⚠️ Unknown message type: %s\n", msg.Status)
+			return ""
 	}
 }
 
@@ -443,7 +446,10 @@ func main() {
 		log.Fatalf("scp failed: %v", err)
 	}
 
+	start := time.Now()
 	if err := runRemote("testenv", "/tmp/break_tool"); err != nil {
 		log.Fatalf("remote run failed: %v", err)
 	}
+	dur := time.Since(start)
+	log.Printf("remote run finished in %s", dur)
 }
