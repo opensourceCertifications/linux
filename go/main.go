@@ -6,30 +6,31 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
+	"math/big"
 	"net"
 	"os"
-	"path/filepath"
-	"math/big"
-	"crypto/rand"
-	"context"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
-	"io"
-	"bufio"
-	"encoding/base64"
-	"errors"
-	"encoding/binary"
-	"encoding/json"
-	"bytes"
 
-//	"golang.org/x/crypto/ssh"
+	//	"golang.org/x/crypto/ssh"
+	cryptohelpers "chaos-agent/library/ssh"
+	datatypes "chaos-agent/library/types"
+
 	"golang.org/x/crypto/nacl/box"
-	"chaos-agent/library/ssh"
-	"chaos-agent/library/types"
 )
 
 // scp the binary to the remote host using SSH config
@@ -45,6 +46,7 @@ func scpUsingSSHConfig(host, localPath, remotePath string) error {
 		return err
 	}
 
+	// #nosec G204 -- arguments are not user-controlled; exec.Command does not use a shell
 	cmd := exec.Command(scpBin,
 		"-F", cfg,
 		localPath,
@@ -67,6 +69,7 @@ func runRemote(host, remoteCmd string) error {
 		return err
 	}
 
+	// #nosec G204 -- arguments are not user-controlled; exec.Command does not use a shell
 	cmd := exec.Command(sshBin,
 		"-F", cfg,
 		"-o", "BatchMode=yes",
@@ -77,7 +80,6 @@ func runRemote(host, remoteCmd string) error {
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Run()
 }
-
 
 func pickRandomFile(dir string) (string, error) {
 	files, err := filepath.Glob(filepath.Join(dir, "*/*.go"))
@@ -111,17 +113,22 @@ func setupListener(portHint int) (net.Listener, int, error) {
 	return listener, port, nil
 }
 
-func handleConn(c net.Conn) {
-	defer c.Close()
-
-	from := c.RemoteAddr().String()
-	fmt.Fprintf(os.Stdout, "\n--- BEGIN message stream from %s ---\n", from)
-
-	// Copy whatever the client sends straight to stdout until it closes the connection.
-	_, _ = io.Copy(os.Stdout, c)
-
-	fmt.Fprintf(os.Stdout, "\n--- END message stream from %s ---\n", from)
-}
+// func handleConn(c net.Conn) {
+//	defer func() {
+//		if err := c.Close(); err != nil {
+//			log.Printf("error closing connection from %s: %v",
+//				c.RemoteAddr(), err)
+//		}
+//	}()
+//
+//	from := c.RemoteAddr().String()
+//	fmt.Printf("\n--- BEGIN message stream from %s ---\n", from)
+//
+//	// Copy whatever the client sends straight to stdout until it closes the connection.
+//	_, _ = io.Copy(os.Stdout, c)
+//
+//	fmt.Printf("\n--- END message stream from %s ---\n", from)
+//}
 
 func parseKey32(b64 string) (*[32]byte, error) {
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
@@ -137,7 +144,11 @@ func parseKey32(b64 string) (*[32]byte, error) {
 }
 
 func handleConnDecrypt(c net.Conn, pub *[32]byte, priv *[32]byte) (string, error) {
-	defer c.Close()
+	defer func() {
+		if err := c.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error closing connection: %v\n", err)
+		}
+	}()
 
 	r := bufio.NewReader(c)
 
@@ -186,9 +197,14 @@ func handleConnDecrypt(c net.Conn, pub *[32]byte, priv *[32]byte) (string, error
 
 func acceptAndDecrypt(listener net.Listener, pubB64, privB64 string) error {
 	pub, err := parseKey32(pubB64)
-	if err != nil { return err }
+	if err != nil {
+		return err
+
+	}
 	priv, err := parseKey32(privB64)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	for {
 		conn, err := listener.Accept()
@@ -199,11 +215,15 @@ func acceptAndDecrypt(listener net.Listener, pubB64, privB64 string) error {
 			log.Printf("accept error: %v", err)
 			continue
 		}
-		//go handleConnDecrypt(conn, pub, priv)
+		// go handleConnDecrypt(conn, pub, priv)
 		//STARTHERE: you need to put the complete into a counter
 		// tokens need to be recoreded, add for each new one subtract for each complete
 		// when zero, exit listener
 		decryptedConn, err := handleConnDecrypt(conn, pub, priv)
+		if err != nil {
+			log.Printf("handleConnDecrypt error: %v", err)
+			continue
+		}
 		op := handleChaosConnection(decryptedConn)
 		if op == "complete" {
 			fmt.Println("✅ Operation completed successfully, exiting listener.")
@@ -268,58 +288,58 @@ func handleChaosConnection(plaintext string) string {
 	// Step 1: Decode JSON
 	var msg datatypes.ChaosMessage
 	if err := json.Unmarshal([]byte(plaintext), &msg); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON after decryption: %s\n", plaintext)
+		fmt.Printf("⚠️ Invalid JSON after decryption: %s\n", plaintext)
 		return "" // can't proceed safely
 	}
 
 	// Step 3: Handle based on status
 	switch msg.Status {
-		case "init":
-			fmt.Printf("🚀 Init message received: %s\n", msg.Message)
-			return ""
-		case "operation_complete":
-			if msg.TokenCheck {
-				fmt.Println("✅ Operation completed, continuing to listen for new messages.")
-				return "complete"
-			}
-			fmt.Println("❌ Operation_complete received but token check failed")
-			return ""
+	case "init":
+		fmt.Printf("🚀 Init message received: %s\n", msg.Message)
+		return ""
+	case "operation_complete":
+		if msg.TokenCheck {
+			fmt.Println("✅ Operation completed, continuing to listen for new messages.")
+			return "complete"
+		}
+		fmt.Println("❌ Operation_complete received but token check failed")
+		return ""
 
-		case "general":
-			fmt.Printf("📢 General: %s\n", msg.Message)
-			return ""
+	case "general":
+		fmt.Printf("📢 General: %s\n", msg.Message)
+		return ""
 
-		case "chaos_report", "error":
-			fmt.Printf("🐛 Chaos Report: %s\n", msg.Message)
-			logPath := "/tmp/chaos_reports.log"
-			f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "log open error: %v\n", err)
-				return ""
-			}
-			if _, err := f.Write(append([]byte(plaintext), '\n')); err != nil {
-				fmt.Fprintf(os.Stderr, "log write error: %v\n", err)
-			}
-			_ = f.Close()
+	case "chaos_report", "error":
+		fmt.Printf("🐛 Chaos Report: %s\n", msg.Message)
+		logPath := "/tmp/chaos_reports.log"
+		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			fmt.Printf("log open error: %v\n", err)
 			return ""
+		}
+		if _, err := f.Write(append([]byte(plaintext), '\n')); err != nil {
+			fmt.Printf("log write error: %v\n", err)
+		}
+		_ = f.Close()
+		return ""
 
-		case "variable":
-			// ... your existing variable handling ...
-			// make sure every `break` becomes `return ""` in this case
-			// (because you're not inside a loop anymore)
-			return ""
+	case "variable":
+		// ... your existing variable handling ...
+		// make sure every `break` becomes `return ""` in this case
+		// (because you're not inside a loop anymore)
+		return ""
 
-		default:
-			fmt.Printf("⚠️ Unknown message type: %s\n", msg.Status)
-			return ""
+	default:
+		fmt.Printf("⚠️ Unknown message type: %s\n", msg.Status)
+		return ""
 	}
 }
 
-//func handleChaosConnection(plaintext string) string {
+// func handleChaosConnection(plaintext string) string {
 //	// Step 1: Decode JSON
 //	var msg datatypes.ChaosMessage
 //	if err := json.Unmarshal([]byte(plaintext), &msg); err != nil {
-//		fmt.Fprintf(os.Stderr, "⚠️ Invalid JSON after decryption: %s\n", plaintext)
+//		fmt.Printf(os.Stderr, "⚠️ Invalid JSON after decryption: %s\n", plaintext)
 //	}
 //
 //	// Step 3: Handle based on status
@@ -340,12 +360,12 @@ func handleChaosConnection(plaintext string) string {
 //		logPath := "/tmp/chaos_reports.log"
 //		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 //		if err != nil {
-//			fmt.Fprintf(os.Stderr, "log open error: %v\n", err)
+//			fmt.Printf(os.Stderr, "log open error: %v\n", err)
 //			break
 //		}
 //		// write the full JSON we received (plus newline)
 //		if _, err := f.Write(append([]byte(plaintext), '\n')); err != nil {
-//			fmt.Fprintf(os.Stderr, "log write error: %v\n", err)
+//			fmt.Printf(os.Stderr, "log write error: %v\n", err)
 //		}
 //		_ = f.Close()
 //
@@ -366,7 +386,7 @@ func handleChaosConnection(plaintext string) string {
 //		if data, err := os.ReadFile(filePath); err == nil {
 //			if len(data) > 0 {
 //				if err := yaml.Unmarshal(data, &vars); err != nil {
-//					fmt.Fprintf(os.Stderr, "YAML unmarshal error: %v\n", err)
+//					fmt.Printf(os.Stderr, "YAML unmarshal error: %v\n", err)
 //					break
 //				}
 //			}
@@ -383,12 +403,12 @@ func handleChaosConnection(plaintext string) string {
 //		// Step 3: Write back full YAML
 //		out, err := yaml.Marshal(vars)
 //		if err != nil {
-//			fmt.Fprintf(os.Stderr, "YAML marshal error: %v\n", err)
+//			fmt.Printf(os.Stderr, "YAML marshal error: %v\n", err)
 //			break
 //		}
 //
 //		if err := os.WriteFile(filePath, out, 0600); err != nil {
-//			fmt.Fprintf(os.Stderr, "variable file write error: %v\n", err)
+//			fmt.Printf(os.Stderr, "variable file write error: %v\n", err)
 //		} else {
 //			fmt.Printf("✅ Updated %s with %s -> %s\n", filePath, key, value)
 //		}
@@ -401,54 +421,64 @@ func handleChaosConnection(plaintext string) string {
 func main() {
 	scriptPath, err := pickRandomFile("breaks")
 	if err != nil {
-		log.Fatal("Failed to pick test file: %v\n", err)
+		log.Printf("Failed to pick test file: %v", err)
+		return
 	}
 	fmt.Printf("🎯 Selected test script: %s\n", scriptPath)
 
-	//privatKey, publicKey, err := cryptohelpers.GenerateEd25519KeyPair()
+	// privatKey, publicKey, err := cryptohelpers.GenerateEd25519KeyPair()
 	publicKey, privatKey, err := cryptohelpers.GenerateKeys()
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Failed to generate keys: %s", err)
+		return
 	}
 	fmt.Println("PRIVATE KEY:\n", string(privatKey))
 	fmt.Println("PUBLIC KEY:\n", string(publicKey))
 
 	monitorAddr := os.Getenv("MONITOR_ADDRESS")
 	if monitorAddr == "" {
-		log.Fatal("MONITOR_ADDRESS not set")
+		log.Printf("MONITOR_ADDRESS not set")
+		return
 	}
 
 	listener, port, err := setupListener(0)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("Failed to setup listender: %s", err)
+		return
 	}
-	defer listener.Close()
-
-	go func() {
-		if err := acceptAndDecrypt(listener, publicKey, privatKey); err != nil {
-				log.Printf("accept loop stopped: %v", err)
+	defer func() {
+		if err := listener.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error closing connection: %v\n", err)
 		}
 	}()
 
+	go func() {
+		if err := acceptAndDecrypt(listener, publicKey, privatKey); err != nil {
+			log.Printf("accept loop stopped: %v", err)
+		}
+	}()
 
 	fmt.Println("LISTENING ON PORT:", port)
 	fmt.Println("listner:", listener)
 
 	localBin, err := compileChaosBinary(scriptPath, monitorAddr, port, publicKey)
 	if err != nil {
-		fmt.Errorf("error when compling binary: %s", err)
+		log.Printf("error when compling binary: %s", err)
+		return
 	}
 	fmt.Println("COMPILED BINARY AT:", localBin)
 
 	const remoteBin = "/tmp/break_tool"
 
-	if err := scpUsingSSHConfig("testenv", localBin, "/tmp/break_tool"); err != nil {
-		log.Fatalf("scp failed: %v", err)
+	if err := scpUsingSSHConfig("testenv", localBin, remoteBin); err != nil {
+		log.Printf("scp failed: %v", err)
+		return
 	}
 
 	start := time.Now()
-	if err := runRemote("testenv", "/tmp/break_tool"); err != nil {
-		log.Fatalf("remote run failed: %v", err)
+	if err := runRemote("testenv", remoteBin); err != nil {
+		log.Printf("remote run failed: %v", err)
+		return
 	}
 	dur := time.Since(start)
 	log.Printf("remote run finished in %s", dur)

@@ -85,6 +85,7 @@ func SendRawMessage(ip string, port int, message string, encryptionKey string) e
 	return nil
 }
 
+// GenerateToken creates a random hexadecimal token of specified byte length
 func GenerateToken(nBytes int) (string, error) {
 	b := make([]byte, nBytes)
 	_, err := rand.Read(b)

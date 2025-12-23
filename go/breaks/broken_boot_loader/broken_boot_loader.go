@@ -17,7 +17,7 @@ var (
 	MonitorPortStr string
 	MonitorPort    int
 	EncryptionKey  string
-	Token          string// = library.GenerateToken(16)
+	Token          string // = library.GenerateToken(16)
 )
 
 func init() {
