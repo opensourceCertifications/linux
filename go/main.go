@@ -60,11 +60,11 @@ func manageToken(token, action string) error {
 	return nil
 }
 
-// func getActiveTokenCount() int {
-//   tokenMutex.Lock()
-//   defer tokenMutex.Unlock()
-//   return len(activeTokens)
-// }
+func getActiveTokenCount() int {
+	tokenMutex.Lock()
+	defer tokenMutex.Unlock()
+	return len(activeTokens)
+}
 
 // scp the binary to the remote host using SSH config
 func scpUsingSSHConfig(host, localPath, remotePath string) error {
@@ -258,8 +258,8 @@ func acceptLoop(listener net.Listener, pubB64, privB64 string) error {
 			log.Printf("readAndDecryptMessage error: %v", err)
 			continue
 		}
-		op := handleChaosMessage(decryptedConn)
-		if op == "complete" {
+		shouldExit := handleChaosMessage(decryptedConn)
+		if shouldExit {
 			fmt.Println("✅ Operation completed successfully, exiting listener.")
 			return nil
 		}
@@ -318,12 +318,12 @@ func compileChaosBinary(sourcePath, monitorIP string, port int, encryptionKey st
 }
 
 // nolint:cyclop // TODO: split into small handlers (general, report, variable, opComplete)
-func handleChaosMessage(plaintext string) string {
+func handleChaosMessage(plaintext string) bool {
 	// Step 1: Decode JSON
 	var msg datatypes.ChaosMessage
 	if err := json.Unmarshal([]byte(plaintext), &msg); err != nil {
 		fmt.Printf("⚠️ Invalid JSON after decryption: %s\n", plaintext)
-		return "" // can't proceed safely
+		return false // can't proceed safely
 	}
 
 	// Step 3: Handle based on status
@@ -333,17 +333,17 @@ func handleChaosMessage(plaintext string) string {
 		if err := manageToken(msg.Token, "add"); err != nil {
 			fmt.Printf("Error checking token: %v\n", err)
 		}
-		return ""
+		return false
 	case "operation_complete":
 		fmt.Printf("❌ Operation_complete: %s\n", msg.Token)
 		if err := manageToken(msg.Token, "subtract"); err != nil {
 			fmt.Printf("Error checking token: %v\n", err)
 		}
-		return ""
-
-	case "general":
-		fmt.Printf("📢 General: %s\n", msg.Message)
-		return ""
+		// If no more active tokens, tell listener to exit
+		if getActiveTokenCount() == 0 {
+			return true
+		}
+		return false
 
 	case "chaos_report", "error":
 		fmt.Printf("🐛 Chaos Report: %s\n", msg.Message)
@@ -351,23 +351,27 @@ func handleChaosMessage(plaintext string) string {
 		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
 			fmt.Printf("log open error: %v\n", err)
-			return ""
+			return false
 		}
 		if _, err := f.Write(append([]byte(plaintext), '\n')); err != nil {
 			fmt.Printf("log write error: %v\n", err)
 		}
 		_ = f.Close()
-		return ""
+		return false
+
+	case "general":
+		fmt.Printf("📢 General: %s\n", msg.Message)
+		return false
 
 	case "variable":
 		// ... your existing variable handling ...
 		// make sure every `break` becomes `return ""` in this case
 		// (because you're not inside a loop anymore)
-		return ""
+		return false
 
 	default:
 		fmt.Printf("⚠️ Unknown message type: %s\n", msg.Status)
-		return ""
+		return false
 	}
 }
 
