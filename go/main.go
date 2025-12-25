@@ -375,7 +375,7 @@ func handleChaosMessage(plaintext string) bool {
 	}
 }
 
-func main() {
+func runChaosCycle() {
 	scriptPath, err := pickRandomFile("breaks")
 	if err != nil {
 		log.Printf("Failed to pick test file: %v", err)
@@ -403,13 +403,18 @@ func main() {
 		log.Printf("Failed to setup listender: %s", err)
 		return
 	}
+	// This ensures the listener is closed when runChaosCycle returns,
+	// which will unblock acceptLoop if it's still running.
 	defer func() {
 		if err := listener.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "error closing connection: %v\n", err)
 		}
 	}()
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		if err := acceptLoop(listener, publicKey, privatKey); err != nil {
 			log.Printf("accept loop stopped: %v", err)
 		}
@@ -439,4 +444,26 @@ func main() {
 	}
 	dur := time.Since(start)
 	log.Printf("remote run finished in %s", dur)
+
+	// Wait for the accept loop to finish (triggered by operation_complete)
+	// If runRemote fails above, we return, listener closes, acceptLoop exits, wg is Done.
+	wg.Wait()
+}
+
+func main() {
+	for {
+		runChaosCycle()
+
+		// Random sleep between 60 and 120 seconds
+		n, err := rand.Int(rand.Reader, big.NewInt(61)) // 0 to 60
+		if err != nil {
+			log.Printf("failed to generate random sleep: %v", err)
+			time.Sleep(60 * time.Second)
+		} else {
+			sleepSecs := n.Int64() + 60
+			fmt.Printf("Sleeping for %d seconds...\n", sleepSecs)
+			time.Sleep(time.Duration(sleepSecs) * time.Second)
+		}
+		fmt.Println("------------------------------------------------")
+	}
 }
