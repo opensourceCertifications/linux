@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	//	"golang.org/x/crypto/ssh"
@@ -32,6 +33,38 @@ import (
 
 	"golang.org/x/crypto/nacl/box"
 )
+
+var (
+	activeTokens = make(map[string]bool)
+	tokenMutex   sync.Mutex
+)
+
+func manageToken(token, action string) error {
+	tokenMutex.Lock()
+	defer tokenMutex.Unlock()
+
+	switch action {
+	case "add":
+		if activeTokens[token] {
+			return fmt.Errorf("token %s already exists", token)
+		}
+		activeTokens[token] = true
+	case "subtract":
+		if !activeTokens[token] {
+			return fmt.Errorf("token %s does not exist", token)
+		}
+		delete(activeTokens, token)
+	default:
+		return fmt.Errorf("unknown action: %s", action)
+	}
+	return nil
+}
+
+// func getActiveTokenCount() int {
+//   tokenMutex.Lock()
+//   defer tokenMutex.Unlock()
+//   return len(activeTokens)
+// }
 
 // scp the binary to the remote host using SSH config
 func scpUsingSSHConfig(host, localPath, remotePath string) error {
@@ -143,7 +176,7 @@ func parseKey32(b64 string) (*[32]byte, error) {
 	return &k, nil
 }
 
-func handleConnDecrypt(c net.Conn, pub *[32]byte, priv *[32]byte) (string, error) {
+func readAndDecryptMessage(c net.Conn, pub *[32]byte, priv *[32]byte) (string, error) {
 	defer func() {
 		if err := c.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "error closing connection: %v\n", err)
@@ -190,12 +223,12 @@ func handleConnDecrypt(c net.Conn, pub *[32]byte, priv *[32]byte) (string, error
 			continue
 		}
 
-		// handleChaosConnection closes conn internally (you already defer there).
+		// handleChaosMessage closes conn internally (you already defer there).
 		return strings.TrimSpace(string(pt)), nil
 	}
 }
 
-func acceptAndDecrypt(listener net.Listener, pubB64, privB64 string) error {
+func acceptLoop(listener net.Listener, pubB64, privB64 string) error {
 	pub, err := parseKey32(pubB64)
 	if err != nil {
 		return err
@@ -205,6 +238,7 @@ func acceptAndDecrypt(listener net.Listener, pubB64, privB64 string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Println("Waiting for incoming connections...")
 
 	for {
 		conn, err := listener.Accept()
@@ -215,16 +249,16 @@ func acceptAndDecrypt(listener net.Listener, pubB64, privB64 string) error {
 			log.Printf("accept error: %v", err)
 			continue
 		}
-		// go handleConnDecrypt(conn, pub, priv)
+		// go readAndDecryptMessage(conn, pub, priv)
 		//STARTHERE: you need to put the complete into a counter
 		// tokens need to be recoreded, add for each new one subtract for each complete
 		// when zero, exit listener
-		decryptedConn, err := handleConnDecrypt(conn, pub, priv)
+		decryptedConn, err := readAndDecryptMessage(conn, pub, priv)
 		if err != nil {
-			log.Printf("handleConnDecrypt error: %v", err)
+			log.Printf("readAndDecryptMessage error: %v", err)
 			continue
 		}
-		op := handleChaosConnection(decryptedConn)
+		op := handleChaosMessage(decryptedConn)
 		if op == "complete" {
 			fmt.Println("✅ Operation completed successfully, exiting listener.")
 			return nil
@@ -284,7 +318,7 @@ func compileChaosBinary(sourcePath, monitorIP string, port int, encryptionKey st
 }
 
 // nolint:cyclop // TODO: split into small handlers (general, report, variable, opComplete)
-func handleChaosConnection(plaintext string) string {
+func handleChaosMessage(plaintext string) string {
 	// Step 1: Decode JSON
 	var msg datatypes.ChaosMessage
 	if err := json.Unmarshal([]byte(plaintext), &msg); err != nil {
@@ -296,13 +330,15 @@ func handleChaosConnection(plaintext string) string {
 	switch msg.Status {
 	case "init":
 		fmt.Printf("🚀 Init message received: %s\n", msg.Message)
+		if err := manageToken(msg.Token, "add"); err != nil {
+			fmt.Printf("Error checking token: %v\n", err)
+		}
 		return ""
 	case "operation_complete":
-		if msg.TokenCheck {
-			fmt.Println("✅ Operation completed, continuing to listen for new messages.")
-			return "complete"
+		fmt.Printf("❌ Operation_complete: %s\n", msg.Token)
+		if err := manageToken(msg.Token, "subtract"); err != nil {
+			fmt.Printf("Error checking token: %v\n", err)
 		}
-		fmt.Println("❌ Operation_complete received but token check failed")
 		return ""
 
 	case "general":
@@ -334,89 +370,6 @@ func handleChaosConnection(plaintext string) string {
 		return ""
 	}
 }
-
-// func handleChaosConnection(plaintext string) string {
-//	// Step 1: Decode JSON
-//	var msg datatypes.ChaosMessage
-//	if err := json.Unmarshal([]byte(plaintext), &msg); err != nil {
-//		fmt.Printf(os.Stderr, "⚠️ Invalid JSON after decryption: %s\n", plaintext)
-//	}
-//
-//	// Step 3: Handle based on status
-//	switch msg.Status {
-//	case "operation_complete":
-//		if msg.TokenCheck {
-//			fmt.Println("✅ Operation completed, continuing to listen for new messages.")
-//			return "complete"
-//		}
-//		fmt.Println("❌ Operation_complete received but token check failed")
-//
-//	case "general":
-//		// just print the message
-//		fmt.Printf("📢 General: %s", msg.Message)
-//
-//	case "chaos_report", "error":
-//		fmt.Printf("🐛 Chaos Report: %s", msg.Message)
-//		logPath := "/tmp/chaos_reports.log"
-//		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
-//		if err != nil {
-//			fmt.Printf(os.Stderr, "log open error: %v\n", err)
-//			break
-//		}
-//		// write the full JSON we received (plus newline)
-//		if _, err := f.Write(append([]byte(plaintext), '\n')); err != nil {
-//			fmt.Printf(os.Stderr, "log write error: %v\n", err)
-//		}
-//		_ = f.Close()
-//
-//	case "variable":
-//		parts := strings.SplitN(msg.Message, ",", 2)
-//		if len(parts) != 2 {
-//			fmt.Printf("⚠️ Invalid variable message format: %s\n", msg.Message)
-//			break
-//		}
-//
-//		key := parts[0]
-//		value := parts[1]
-//		filePath := os.Getenv("ANSIBLE_VARS_PATH")
-//
-//		// Step 1: Load existing YAML if present
-//		vars := make(map[string][]string)
-//		// #nosec G304 -- filePath is fixed under ../ansible/; not user-controlled
-//		if data, err := os.ReadFile(filePath); err == nil {
-//			if len(data) > 0 {
-//				if err := yaml.Unmarshal(data, &vars); err != nil {
-//					fmt.Printf(os.Stderr, "YAML unmarshal error: %v\n", err)
-//					break
-//				}
-//			}
-//		}
-//
-//		// Step 2: Append value (avoid duplicates if you like)
-//		list := vars[key]
-//		// Optional: deduplicate
-//		alreadyExists := slices.Contains(list, value)
-//		if !alreadyExists {
-//			vars[key] = append(list, value)
-//		}
-//
-//		// Step 3: Write back full YAML
-//		out, err := yaml.Marshal(vars)
-//		if err != nil {
-//			fmt.Printf(os.Stderr, "YAML marshal error: %v\n", err)
-//			break
-//		}
-//
-//		if err := os.WriteFile(filePath, out, 0600); err != nil {
-//			fmt.Printf(os.Stderr, "variable file write error: %v\n", err)
-//		} else {
-//			fmt.Printf("✅ Updated %s with %s -> %s\n", filePath, key, value)
-//		}
-//
-//	default:
-//		return fmt.Printf("⚠️ Unknown message type: %s", msg.Status)
-//	}
-//}
 
 func main() {
 	scriptPath, err := pickRandomFile("breaks")
@@ -453,7 +406,7 @@ func main() {
 	}()
 
 	go func() {
-		if err := acceptAndDecrypt(listener, publicKey, privatKey); err != nil {
+		if err := acceptLoop(listener, publicKey, privatKey); err != nil {
 			log.Printf("accept loop stopped: %v", err)
 		}
 	}()
