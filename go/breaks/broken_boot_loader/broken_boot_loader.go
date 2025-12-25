@@ -84,4 +84,5 @@ func main() {
 	}
 	library.SendMessage(MonitorIP, MonitorPort, "chaos_report", fmt.Sprintf("corrupted kernel file %s", file), Token, EncryptionKey)
 	library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("BrokenFiles,%s", file), Token, EncryptionKey)
+	library.SendMessage(MonitorIP, MonitorPort, "operation_complete", "complete", Token, EncryptionKey)
 }
