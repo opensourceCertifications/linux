@@ -3,10 +3,10 @@ repos:
   - repo: local
     hooks:
       - id: golangci-lint-in-module
-        name: golangci-lint (monitor/go)
+        name: golangci-lint (go)
         language: system
         pass_filenames: false
-        entry: bash -lc 'cd monitor/go && golangci-lint run --config=../../.golangci.yml --fix --timeout=2m ./...'
+        entry: bash -lc 'cd go && golangci-lint run --config=../.golangci.yml --fix --timeout=2m ./...'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -87,11 +87,11 @@ repos:
     hooks:
       # Runs only when go.mod or go.sum in monitor/go change
       - id: go-mod-tidy
-        name: go mod tidy (monitor/go)
+        name: go mod tidy (go)
         language: system
-        entry: bash -lc 'cd monitor/go && go mod tidy'
+        entry: bash -lc 'cd go && go mod tidy'
         pass_filenames: false # we don't want pre-commit to pass file paths
-        files: ^monitor/go/(go\.mod|go\.sum)$
+        files: ^go/(go\.mod|go\.sum)$
         require_serial: true # this hook edits files; avoid parallel runs
 
       # Validate Vagrantfile (you already had a similar one; keep one copy)
@@ -108,7 +108,7 @@ repos:
         language: system
         pass_filenames: false
         entry: bash scripts/gen_docs.sh
-        files: ^monitor/go/.*\.go$
+        files: ^go/.*\.go$
 
       - id: ensure-bash-header
         name: ensure shdoc-style header in shell scripts

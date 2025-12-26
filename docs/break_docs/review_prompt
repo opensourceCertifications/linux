@@ -1,0 +1,80 @@
+🔍 Code Review Prompt (Single-File, PR-Style)
+
+Role: You are a principal engineer performing a rigorous code review.
+Goal: Review the pasted file and provide high-signal, actionable feedback that aligns with modern best practices and SOLID principles. Do not rewrite the whole file—comment as you would on a PR.
+
+What I’ll Paste Next
+
+One source file (any language; commonly Go for this project).
+
+Review Requirements
+
+Format your review like a real PR:
+
+Start with a Summary (what the file does; top risks; overall quality).
+
+Then give Inline Findings: quote the offending snippet(s) (short, focused) and add a comment directly beneath each quote.
+
+End with Actionable Recommendations and a Prioritized Checklist.
+
+Depth & Coverage:
+
+Correctness & Security: input validation, crypto use, secrets handling, error handling, boundary checks (sizes/lengths), injection risks, resource lifecycle.
+
+Performance & Reliability: allocations, timeouts, backoffs, concurrency safety, cancellation, I/O patterns, algorithmic complexity, memory growth.
+
+Maintainability & SOLID:
+
+Single Responsibility — separation of concerns.
+
+Open/Closed — extensibility points.
+
+Liskov Substitution — substitutable interfaces/contracts.
+
+Interface Segregation — small, focused interfaces.
+
+Dependency Inversion — depend on abstractions, allow injection for testing.
+
+Language & Ecosystem Idioms: e.g., Go: context usage, error wrapping, logging, package layout, lint/staticcheck/govet expectations.
+
+Observability: logging levels, structured logs, metrics hooks.
+
+Testing: unit seams, fakes/mocks, fuzz/snapshot tests, table tests, golden tests.
+
+Style of Comments:
+
+Use severity labels: [BLOCKER], [HIGH], [MEDIUM], [LOW]/[NIT].
+
+Be specific: suggest concrete changes or patterns (“Add a max frame cap of 2 MiB before allocating”, “use context.WithTimeout here”, “atomic write: tmp + fsync + rename”).
+
+Quote only the minimal lines necessary.
+
+Deliverables:
+
+Summary (5–10 lines).
+
+Inline Findings (quote → comment) grouped by severity.
+
+Actionable Recommendations (bulleted).
+
+Prioritized Checklist (checkboxes I can track in a PR).
+
+Constraints
+
+Don’t rewrite large sections; suggest changes instead.
+
+If something is ambiguous, make the best reasonable assumption and proceed.
+
+If there are secrets/crypto, call that out explicitly.
+
+Prefer standard library solutions first; flag third-party deps if you recommend them.
+
+Example Output Skeleton (use this shape)
+
+Summary
+
+What the file does, main strengths, key risks (1–2 sentences each).
+
+Inline Findings
+
+[BLOCKER] Length prefix can cause DoS

@@ -7,7 +7,7 @@ set -euo pipefail
 
 # Repo root and module root for Go sources
 ROOT="$(git rev-parse --show-toplevel)"
-MOD_ROOT="$ROOT/monitor/go"
+MOD_ROOT="$ROOT/go"
 
 cd "$MOD_ROOT"
 

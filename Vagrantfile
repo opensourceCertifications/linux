@@ -48,8 +48,8 @@ Vagrant.configure('2') do |config|
   # -----------------------------
   # Shared values (used by both VMs)
   # -----------------------------
-  monitor_ip = '192.168.121.10'     # host-only/private IP for the monitor VM
-  testenv_ip = '192.168.121.11'     # host-only/private IP for the testenv VM
+  monitor_ip = '192.168.56.10'     # host-only/private IP for the monitor VM
+  testenv_ip = '192.168.56.11'     # host-only/private IP for the testenv VM
   shared_path = './transfer' # local folder to exchange small artifacts (keys, etc.)
   host_mount  = '/vagrant_transfer' # mount point inside the VMs
 
@@ -65,23 +65,6 @@ Vagrant.configure('2') do |config|
   # -----------------------------
   %w[monitor testenv].each do |name|
     config.vm.define name do |m|
-      #      m.vm.provider 'virtualbox' do |vb|
-      #        vb.name = "yl-#{name}"      # nice, stable name in VirtualBox UI
-      #        vb.memory = 2048            # t3.small-equivalent memory
-      #        vb.cpus   = 2               # t3.small-equivalent vCPU count
-      #
-      #        # Make the guest behave closer to KVM/Nitro for more realistic perf
-      #        vb.customize ['modifyvm', :id, '--paravirtprovider', 'kvm']
-      #
-      #        # Favor virtio NICs over e1000 for lower overhead
-      #        vb.customize ['modifyvm', :id, '--nictype1', 'virtio']
-      #        vb.customize ['modifyvm', :id, '--nictype2', 'virtio'] # (if a second NIC is used)
-      #
-      #        # Soft limit CPU time to simulate baseline throttling on dev laptops
-      #        # (0–100; 60–70 ~ “baseline with occasional bursts”)
-      #        vb.customize ['modifyvm', :id, '--cpuexecutioncap', '70']
-      #      end
-
       m.vm.provider :libvirt do |lv|
         lv.memory = 2048
         lv.cpus   = 2
@@ -103,22 +86,41 @@ Vagrant.configure('2') do |config|
   config.vm.define 'monitor' do |monitor|
     monitor.vm.box = 'almalinux/9'                      # base image
     monitor.vm.hostname = 'monitor'                     # /etc/hostname
+    #    monitor.vm.network 'private_network',
+    #                       libvirt__network_name: 'vagrant-libvirt',
+    #                       type: 'dhcp'
     monitor.vm.network 'private_network', ip: monitor_ip # host-only network
     # monitor.vm.synced_folder shared_path, host_mount # mount host ./transfer -> /vagrant_transfer
 
     # Create an SSH keypair (non-root) and drop the public key into the shared folder
     # so testenv can pick it up and authorize monitor access.
-    monitor.vm.provision 'shell', privileged: false, inline: <<-SHELL
-      ssh-keygen -t ed25519 -f $HOME/.ssh/id_ed25519 -N ""
-      cp $HOME/.ssh/id_ed25519.pub #{host_mount}/monitor.pub
-      echo "Host #{testenv_ip} testenv
+    monitor.vm.provision 'shell', privileged: false, inline: <<~SHELL
+            ssh-keygen -t ed25519 -f $HOME/.ssh/id_ed25519 -N ""
+            cp $HOME/.ssh/id_ed25519.pub #{host_mount}/monitor.pub
+
+            cat > $HOME/.ssh/config <<EOF
+      Host #{testenv_ip} testenv
+        HostName #{testenv_ip}
         User root
         IdentityFile $HOME/.ssh/id_ed25519
-        StrictHostKeyChecking accept-new
-        UserKnownHostsFile $HOME/.ssh/known_hosts" > $HOME/.ssh/config
-        chmod 600 $HOME/.ssh/config
-        ssh-keyscan -H #{testenv_ip} >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
-        ssh-keyscan -H testenv        >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+        StrictHostKeyChecking yes
+        UserKnownHostsFile $HOME/.ssh/known_hosts
+      EOF
+            chmod 600 $HOME/.ssh/config
+            touch "$HOME/.ssh/known_hosts"
+
+            # Wait until ssh-keyscan can actually get a host key for testenv
+            tmpfile=$(mktemp)
+            echo "Waiting for SSH on #{testenv_ip}..."
+            while true; do
+              if ssh-keyscan -H #{testenv_ip} > "$tmpfile" 2>/dev/null && [ -s "$tmpfile" ]; then
+                cat "$tmpfile" >> "$HOME/.ssh/known_hosts"
+                rm "$tmpfile"
+                echo "Added #{testenv_ip} to known_hosts"
+                break
+              fi
+              sleep 2
+            done
     SHELL
 
     # Run any additional bootstrap as root (external script you maintain)
@@ -138,6 +140,9 @@ Vagrant.configure('2') do |config|
   config.vm.define 'testenv' do |testenv|
     testenv.vm.box = 'almalinux/9' # base image
     testenv.vm.hostname = 'testenv'
+    #    testenv.vm.network 'private_network',
+    #                       libvirt__network_name: 'vagrant-libvirt',
+    #                       type: 'dhcp'
     testenv.vm.network 'private_network', ip: testenv_ip
     # testenv.vm.synced_folder shared_path, host_mount
 
