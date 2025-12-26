@@ -51,4 +51,5 @@ func main() {
 	for _, file := range files {
 		library.SendMessage(MonitorIP, MonitorPort, "variable", fmt.Sprintf("BrokenFiles,%s", file), Token, EncryptionKey)
 	}
+	library.SendMessage(MonitorIP, MonitorPort, "operation_complete", "complete", Token, EncryptionKey)
 }

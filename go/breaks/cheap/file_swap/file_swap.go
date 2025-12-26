@@ -53,4 +53,5 @@ func main() {
 		library.SendMessage(MonitorIP, MonitorPort, "error", msg, Token, EncryptionKey)
 		return
 	}
+	library.SendMessage(MonitorIP, MonitorPort, "operation_complete", "complete", Token, EncryptionKey)
 }

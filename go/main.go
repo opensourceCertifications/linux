@@ -232,13 +232,18 @@ func acceptLoop(listener net.Listener, pubB64, privB64 string) error {
 	pub, err := parseKey32(pubB64)
 	if err != nil {
 		return err
-
 	}
 	priv, err := parseKey32(privB64)
 	if err != nil {
 		return err
 	}
 	fmt.Println("Waiting for incoming connections...")
+
+	timeout := 30 * time.Second
+	connAccepted := make(chan struct{})
+	exit := make(chan struct{})
+
+	go startAcceptLoopTimer(listener, timeout, connAccepted, exit)
 
 	for {
 		conn, err := listener.Accept()
@@ -249,21 +254,45 @@ func acceptLoop(listener net.Listener, pubB64, privB64 string) error {
 			log.Printf("accept error: %v", err)
 			continue
 		}
-		// go readAndDecryptMessage(conn, pub, priv)
-		//STARTHERE: you need to put the complete into a counter
-		// tokens need to be recoreded, add for each new one subtract for each complete
-		// when zero, exit listener
-		decryptedConn, err := readAndDecryptMessage(conn, pub, priv)
-		if err != nil {
-			log.Printf("readAndDecryptMessage error: %v", err)
-			continue
-		}
-		shouldExit := handleChaosMessage(decryptedConn)
+		connAccepted <- struct{}{}
+		shouldExit := handleConnection(conn, pub, priv)
 		if shouldExit {
 			fmt.Println("✅ Operation completed successfully, exiting listener.")
+			close(exit)
 			return nil
 		}
 	}
+}
+
+func startAcceptLoopTimer(listener net.Listener, timeout time.Duration, connAccepted <-chan struct{}, exit <-chan struct{}) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case <-timer.C:
+			fmt.Println("⏰ No messages received in 30 seconds, closing listener.")
+			if err := listener.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "error closing connection: %v\n", err)
+			}
+			return
+		case <-connAccepted:
+			if !timer.Stop() {
+				<-timer.C
+			}
+			timer.Reset(timeout)
+		case <-exit:
+			return
+		}
+	}
+}
+
+func handleConnection(conn net.Conn, pub, priv *[32]byte) bool {
+	decryptedConn, err := readAndDecryptMessage(conn, pub, priv)
+	if err != nil {
+		log.Printf("readAndDecryptMessage error: %v", err)
+		return false
+	}
+	return handleChaosMessage(decryptedConn)
 }
 
 func compileChaosBinary(sourcePath, monitorIP string, port int, encryptionKey string) (string, error) {
@@ -335,7 +364,7 @@ func handleChaosMessage(plaintext string) bool {
 		}
 		return false
 	case "operation_complete":
-		fmt.Printf("❌ Operation_complete: %s\n", msg.Token)
+		fmt.Printf("Operation_complete: %s\n", msg.Token)
 		if err := manageToken(msg.Token, "subtract"); err != nil {
 			fmt.Printf("Error checking token: %v\n", err)
 		}
@@ -481,7 +510,7 @@ func main() {
 		// Check if long interval has been reached
 		if counter >= longIntervalSecs {
 			fmt.Println("✅ Long interval reached, running additional chaos cycle")
-			runChaosCycle("./breaks")
+			runChaosCycle("./breaks/expensive")
 
 			// Reset counter and pick a new random long interval
 			counter = 0
