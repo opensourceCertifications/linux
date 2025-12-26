@@ -5,6 +5,7 @@ import (
 	// Replace "yourmodule" with the module path from your go.mod
 	"chaos-agent/library"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 )
@@ -26,6 +27,12 @@ func init() {
 			MonitorPort = p
 		}
 	}
+	var err error
+	Token, err = library.GenerateToken(16)
+	if err != nil {
+		log.Fatalf("failed to generate token: %v", err)
+	}
+	library.SendMessage(MonitorIP, MonitorPort, "init", Token, Token, EncryptionKey)
 }
 
 func main() {
