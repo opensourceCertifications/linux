@@ -70,13 +70,15 @@
         pkg_like: >-
           {{ (p is search('^/usr/(bin|sbin)/') or p is match('^/boot/vmlinuz-')) | bool }}
       ansible.builtin.set_fact:
-        work_items: "{{ (work_items | default([])) + [ {
-          'path': p,
-          'class': cls,
-          'rpm_check': pkg_like,
-          'latest_policy': pkg_like,
-          'signer_policy': pkg_like,
-          'hash_policy': 'none' } ] }}"
+        work_items: >-
+          {{ (work_items | default([]))
+             + [{'path': p,
+                 'class': cls,
+                 'rpm_check': pkg_like,
+                 'latest_policy': pkg_like,
+                 'signer_policy': pkg_like,
+                 'hash_policy': 'none'}] }}
+
       loop: "{{ broken_dedup }}"
       loop_control:
         label: "{{ item }}"
