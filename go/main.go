@@ -375,8 +375,8 @@ func handleChaosMessage(plaintext string) bool {
 	}
 }
 
-func runChaosCycle() {
-	scriptPath, err := pickRandomFile("breaks")
+func runChaosCycle(breaksDir string) {
+	scriptPath, err := pickRandomFile(breaksDir)
 	if err != nil {
 		log.Printf("Failed to pick test file: %v", err)
 		return
@@ -451,19 +451,47 @@ func runChaosCycle() {
 }
 
 func main() {
-	for {
-		runChaosCycle()
+	// Pick initial random long interval (5–7 minutes)
+	longInterval, err := rand.Int(rand.Reader, big.NewInt(121)) // 0..120
+	if err != nil {
+		log.Printf("failed to generate long interval: %v", err)
+		longInterval = big.NewInt(0)
+	}
+	longIntervalSecs := longInterval.Int64() + 300 // 300–420 seconds
 
-		// Random sleep between 60 and 120 seconds
-		n, err := rand.Int(rand.Reader, big.NewInt(61)) // 0 to 60
+	counter := int64(0)
+
+	for {
+		runChaosCycle("./breaks/cheap")
+
+		// Random sleep for short interval (60–120s)
+		n, err := rand.Int(rand.Reader, big.NewInt(61)) // 0..60
 		if err != nil {
-			log.Printf("failed to generate random sleep: %v", err)
-			time.Sleep(60 * time.Second)
-		} else {
-			sleepSecs := n.Int64() + 60
-			fmt.Printf("Sleeping for %d seconds...\n", sleepSecs)
-			time.Sleep(time.Duration(sleepSecs) * time.Second)
+			log.Printf("failed to generate short sleep: %v", err)
+			n = big.NewInt(0)
 		}
-		fmt.Println("------------------------------------------------")
+		shortSleepSecs := n.Int64() + 60
+		fmt.Printf("✅ Long interval %s", time.Duration(longIntervalSecs)*time.Second)
+		fmt.Printf("Sleeping for %d seconds...\n", shortSleepSecs)
+		time.Sleep(time.Duration(shortSleepSecs) * time.Second)
+
+		// Increment counter by short interval sleep
+		counter += shortSleepSecs
+
+		// Check if long interval has been reached
+		if counter >= longIntervalSecs {
+			fmt.Println("✅ Long interval reached, running additional chaos cycle")
+			runChaosCycle("./breaks")
+
+			// Reset counter and pick a new random long interval
+			counter = 0
+			n, err := rand.Int(rand.Reader, big.NewInt(121)) // 0..120
+			if err != nil {
+				log.Printf("failed to generate long interval: %v", err)
+				n = big.NewInt(0)
+			}
+			longIntervalSecs = n.Int64() + 300
+			fmt.Printf("Next long interval set to %d seconds\n", longIntervalSecs)
+		}
 	}
 }
