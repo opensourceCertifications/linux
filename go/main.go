@@ -9,7 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
+	crand "crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -28,10 +28,12 @@ import (
 	"time"
 
 	//	"golang.org/x/crypto/ssh"
+	mon "chaos-agent/library/monitor"
 	cryptohelpers "chaos-agent/library/ssh"
 	datatypes "chaos-agent/library/types"
 
 	"golang.org/x/crypto/nacl/box"
+	// "modernc.org/libc/sys/random"
 )
 
 var (
@@ -124,7 +126,7 @@ func pickRandomFile(dir string) (string, error) {
 	}
 	///mathrand.Seed(time.Now().UnixNano())
 	n := big.NewInt(int64(len(files)))
-	r, err := rand.Int(rand.Reader, n)
+	r, err := crand.Int(crand.Reader, n)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate random index: %w", err)
 	}
@@ -480,8 +482,50 @@ func runChaosCycle(breaksDir string) {
 }
 
 func main() {
+	// Start fake NTP server with "now + 2s" offset
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	monitorIP := "192.168.56.10"
+	testenvIP := "192.168.56.11"
+	fakePort := 9123
+
+	n, err := crand.Int(crand.Reader, big.NewInt(5)) // 0..4
+	if err != nil {
+		log.Printf("crypto/rand failed, defaulting offset=0: %v", err)
+		n = big.NewInt(2) // => 0 seconds after -2
+	}
+	sec := int(n.Int64()) - 2 // -2..+2
+	offset := time.Duration(sec) * time.Second
+	fmt.Printf("Starting fake NTP server with offset %s\n", offset)
+
+	// 1) Start fake server
+	go func() {
+		if err := mon.ServeFakeNTP(ctx, fmt.Sprintf(":%d", fakePort), offset); err != nil {
+			fmt.Println("fake ntp error:", err)
+			cancel()
+		}
+	}()
+	// Serve "now + 2s" on UDP/9123
+	//	go func() {
+	//		if err := mon.ServeFakeNTP(ctx, ":9123", offset*time.Second); err != nil {
+	//			fmt.Println("fake ntp error:", err)
+	//		}
+	//	}()
+	// 2) Install nft redirect/SNAT so queries to monitor:123 hit our fake server
+	if err := mon.SetupNTPRedirect(ctx, monitorIP, testenvIP, fakePort); err != nil {
+		fmt.Println("failed to setup nft redirect:", err)
+		cancel()
+		return
+	}
+	defer func() {
+		if err := mon.TeardownNTPRedirect(context.Background()); err != nil {
+			fmt.Println("failed to teardown nft redirect:", err)
+		}
+	}()
+
 	// Pick initial random long interval (5–7 minutes)
-	longInterval, err := rand.Int(rand.Reader, big.NewInt(121)) // 0..120
+	longInterval, err := crand.Int(crand.Reader, big.NewInt(121)) // 0..120
 	if err != nil {
 		log.Printf("failed to generate long interval: %v", err)
 		longInterval = big.NewInt(0)
@@ -494,7 +538,7 @@ func main() {
 		runChaosCycle("./breaks/cheap")
 
 		// Random sleep for short interval (60–120s)
-		n, err := rand.Int(rand.Reader, big.NewInt(61)) // 0..60
+		n, err := crand.Int(crand.Reader, big.NewInt(61)) // 0..60
 		if err != nil {
 			log.Printf("failed to generate short sleep: %v", err)
 			n = big.NewInt(0)
@@ -514,7 +558,7 @@ func main() {
 
 			// Reset counter and pick a new random long interval
 			counter = 0
-			n, err := rand.Int(rand.Reader, big.NewInt(121)) // 0..120
+			n, err := crand.Int(crand.Reader, big.NewInt(121)) // 0..120
 			if err != nil {
 				log.Printf("failed to generate long interval: %v", err)
 				n = big.NewInt(0)
