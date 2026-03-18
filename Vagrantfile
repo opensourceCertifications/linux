@@ -2,7 +2,7 @@
 
 # ------------------------------------------------------------------------------
 # Bootloader check lab — Vagrant topology
-#
+# unset HTTPS_PROXY HTTP_PROXY https_proxy http_proxy
 # Creates two AlmaLinux 9 VMs for local testing:
 #   • monitor  — runs Ansible and orchestration (IP: 192.168.56.10)
 #   • testenv  — target VM where boot files are corrupted/fixed (IP: 192.168.56.11)
@@ -132,6 +132,11 @@ Vagrant.configure('2') do |config|
       echo 'export MONITOR_ADDRESS=#{monitor_ip}' >> /etc/environment
       echo 'export ANSIBLE_VARS_PATH=/vagrant/monitor/ansible/ansible_vars.yml' >> /etc/environment
     SHELL
+
+    # Add /usr/local/go/bin to sudo's secure_path so `sudo go ...` works
+    monitor.vm.provision 'shell', privileged: true, inline: <<-SHELL
+      sed -i 's|Defaults\s*secure_path\s*=\s*|Defaults    secure_path = /usr/local/go/bin:|' /etc/sudoers
+    SHELL
   end
 
   # -----------------------------
@@ -154,7 +159,7 @@ Vagrant.configure('2') do |config|
 
       # Loop until the monitor's public key appears in the shared folder
       while true; do
-        if [ "$(wc -l < #{host_mount}/monitor.pub)" -gt 0 ]; then
+        if [ -s #{host_mount}/monitor.pub ]; then
           # Append the key and fix permissions
           echo "Monitor public key found, installing..." >> /home/vagrant/ssh_key_install.loging
           echo "Monitor public key found, installing..." >> /vagrant/ssh_key_install.loging
