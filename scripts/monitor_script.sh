@@ -48,12 +48,14 @@ chmod 644 /etc/profile.d/go.sh
 # 3) Install Ansible for the vagrant user (user-site)
 #    - Keep system Python clean; install ansible in vagrant’s ~/.local
 # -----------------------------
-dnf install -y python3-pip # ensure pip is available
+dnf install -y python3-pip nftables # ensure pip is available
 
 # Install ansible into the vagrant user’s home (~/.local/bin/ansible, etc.)
 # Using su -c executes the command as the vagrant user; --user avoids system-wide changes.
 su vagrant -c "python3 -m pip install --user ansible"
-
+# Allow vagrant user to run nft (for NTP redirect setup) without a password
+echo 'vagrant ALL=(ALL) NOPASSWD: /usr/sbin/nft' > /etc/sudoers.d/91-vagrant-nft
+chmod 0440 /etc/sudoers.d/91-vagrant-nft
 # Notes:
 # - Go is available to all users after re-login (or `source /etc/profile.d/go.sh`).
 # - The 'vagrant' user will have Ansible in ~/.local/bin; ensure ~/.local/bin is on PATH
