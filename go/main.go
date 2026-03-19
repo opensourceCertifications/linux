@@ -533,6 +533,9 @@ func main() {
 	longIntervalSecs := longInterval.Int64() + 300 // 300–420 seconds
 
 	counter := int64(0)
+	fmt.Print("running expensive break")
+	runChaosCycle("./breaks/expensive")
+	fmt.Print("finished")
 
 	for {
 		runChaosCycle("./breaks/cheap")

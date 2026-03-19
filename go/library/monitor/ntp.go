@@ -12,7 +12,9 @@ import (
 const ntpNatTable = "ntp_nat"
 
 func runNft(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "nft", args...)
+	// Prepend "sudo" to args and call it instead of nft directly
+	fullArgs := append([]string{"nft"}, args...)
+	cmd := exec.CommandContext(ctx, "sudo", fullArgs...) // #nosec G204 -- no shell; all args are hardcoded constants within this package
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

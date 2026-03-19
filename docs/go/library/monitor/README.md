@@ -25,7 +25,7 @@ func ServeFakeNTP(ctx context.Context, listenAddr string, offset time.Duration) 
 ServeFakeNTP serves a fake NTP server on listenAddr \(e.g., ":123"\) that
 
 <a name="SetupNTPRedirect"></a>
-## func [SetupNTPRedirect](<https://github.com/opensourceCertifications/linux/blob/main/go/library/monitor/ntp.go#L102>)
+## func [SetupNTPRedirect](<https://github.com/opensourceCertifications/linux/blob/main/go/library/monitor/ntp.go#L104>)
 
 ```go
 func SetupNTPRedirect(ctx context.Context, monitorIP string, clientIP string, fakePort int) error
@@ -36,7 +36,7 @@ SetupNTPRedirect installs nft rules on the monitor VM so that NTP queries to :12
 \- monitorIP: the monitor VM IP that clients query \(e.g. "192.168.56.10"\) \- clientIP: the testenv IP to target \(e.g. "192.168.56.11"\) \(use "" to target any client\) \- fakePort: the port your fake server listens on \(e.g. 9123\)
 
 <a name="TeardownNTPRedirect"></a>
-## func [TeardownNTPRedirect](<https://github.com/opensourceCertifications/linux/blob/main/go/library/monitor/ntp.go#L122>)
+## func [TeardownNTPRedirect](<https://github.com/opensourceCertifications/linux/blob/main/go/library/monitor/ntp.go#L124>)
 
 ```go
 func TeardownNTPRedirect(ctx context.Context) error
