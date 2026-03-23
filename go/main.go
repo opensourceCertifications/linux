@@ -534,7 +534,7 @@ func main() {
 
 	counter := int64(0)
 	fmt.Print("running break")
-	runChaosCycle("./breaks/cheap")
+	runChaosCycle("./breaks/expensive")
 	fmt.Print("finished")
 
 	for {
