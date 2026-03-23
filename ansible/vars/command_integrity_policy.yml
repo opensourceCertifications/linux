@@ -1,0 +1,30 @@
+---
+# Centralized policy for command integrity checks.
+# Aligned with chaos command breaks that target binaries from common command directories.
+
+command_integrity_scan_dirs:
+  - /usr/bin
+  - /usr/sbin
+  - /bin
+  - /sbin
+
+# Keep shallow directory scans to mirror PickRandomBinaries behavior.
+command_integrity_find_recurse: false
+
+# Validation mode:
+#   - parallel: one parallel probe pass over all targets (faster)
+#   - sequential: include-based per-item tasks (easier step debugging)
+command_integrity_validation_mode: parallel
+
+# Number of parallel workers used when validation mode is parallel.
+# Testenv in this lab is provisioned with 2 vCPUs by Vagrant.
+command_integrity_parallel_workers: 2
+
+# Only validate owner-executable files.
+# Cuts target count substantially; non-executables in /usr/bin are rare and
+# the chaos agent overwhelmingly hits actual command binaries.
+command_integrity_executables_only: true
+
+# false: report-only buckets
+# true: fail play when command_integrity_corrupted is not empty
+command_integrity_strict_mode: false

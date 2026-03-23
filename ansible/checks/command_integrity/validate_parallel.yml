@@ -1,0 +1,71 @@
+---
+- name: Run command integrity probes in parallel
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    check_one() {
+      target="$1"
+      set +e
+      rpm -Vf -- "$target" > /dev/null 2>&1
+      verify_rc=$?
+      set -e
+
+      if (( verify_rc == 0 )); then
+        printf 'VALID|%s\n' "$target"
+      elif (( verify_rc == 1 )); then
+        printf 'CORRUPTED|%s\n' "$target"
+      else
+        printf 'ERROR|%s|rpm verify failed\n' "$target"
+      fi
+    }
+
+    export -f check_one
+
+    xargs -r -P {{ command_integrity_parallel_workers | int }} -n1 -d '\n' \
+      bash -lc 'check_one "$1"' _ <<'EOF_TARGETS'
+    {{ command_targets | join('\n') }}
+    EOF_TARGETS
+  args:
+    executable: /bin/bash
+  register: command_parallel_results
+  changed_when: false
+  failed_when: false
+
+- name: Add parallel valid targets
+  ansible.builtin.set_fact:
+    command_integrity_valid: >-
+      {{
+        command_integrity_valid
+        + (
+          command_parallel_results.stdout_lines
+          | select('match', '^VALID\\|')
+          | map('regex_replace', '^VALID\\|', '')
+          | list
+        )
+      }}
+
+- name: Add parallel corrupted targets
+  ansible.builtin.set_fact:
+    command_integrity_corrupted: >-
+      {{
+        command_integrity_corrupted
+        + (
+          command_parallel_results.stdout_lines
+          | select('match', '^CORRUPTED\\|')
+          | map('regex_replace', '^CORRUPTED\\|', '')
+          | list
+        )
+      }}
+
+- name: Add parallel probe errors
+  ansible.builtin.set_fact:
+    command_integrity_errors: >-
+      {{
+        command_integrity_errors
+        + (
+          command_parallel_results.stdout_lines
+          | select('match', '^ERROR\\|')
+          | map('regex_replace', '^ERROR\\|', '')
+          | list
+        )
+      }}

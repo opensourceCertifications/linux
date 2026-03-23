@@ -1,0 +1,30 @@
+---
+- name: Verify target content against RPM database
+  ansible.builtin.command:
+    argv: [rpm, -Vf, --, "{{ cmd_item }}"]
+  register: cmd_rpm_verify
+  changed_when: false
+  failed_when: false
+
+- name: Record verification result
+  ansible.builtin.set_fact:
+    cmd_verify_pass: "{{ (cmd_rpm_verify.rc | default(0)) == 0 }}"
+
+- name: Record valid command target
+  ansible.builtin.set_fact:
+    command_integrity_valid: "{{ command_integrity_valid + [cmd_item] }}"
+  when: cmd_verify_pass
+
+- name: Record corrupted command target
+  ansible.builtin.set_fact:
+    command_integrity_corrupted: "{{ command_integrity_corrupted + [cmd_item] }}"
+  when:
+    - not cmd_verify_pass
+    - (cmd_rpm_verify.rc | default(0)) == 1
+
+- name: Record RPM verify error
+  ansible.builtin.set_fact:
+    command_integrity_errors: "{{ command_integrity_errors + [cmd_item] }}"
+  when:
+    - not cmd_verify_pass
+    - (cmd_rpm_verify.rc | default(0)) != 1

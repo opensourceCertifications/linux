@@ -1,0 +1,113 @@
+---
+# command_integrity_check.yml - Validate command binaries for corruption and identity mismatch.
+
+- name: Load command integrity policy
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/vars/command_integrity_policy.yml"
+
+- name: Initialize command integrity buckets
+  ansible.builtin.set_fact:
+    command_integrity_valid: []
+    command_integrity_corrupted: []
+    command_integrity_errors: []
+    command_discovered_paths: []
+    command_resolved_paths: []
+    command_targets: []
+
+- name: Discover executable command targets (batched)
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    for dir in {{ command_integrity_scan_dirs | map('quote') | join(' ') }}; do
+      if [[ ! -d "$dir" ]]; then
+        continue
+      fi
+
+      find "$dir" -maxdepth 1 \( -type f -o -type l \) -print0 2>/dev/null || true
+    done \
+      | xargs -0 -r -n1 -P {{ command_integrity_parallel_workers | int }} readlink -f 2>/dev/null \
+      | awk 'NF' \
+      | while IFS= read -r path; do
+          [[ -f "$path" && -x "$path" ]] && printf '%s\n' "$path"
+        done \
+      | sort -u
+  args:
+    executable: /bin/bash
+  register: command_targets_scan
+  changed_when: false
+  failed_when: false
+
+- name: Set discovered and resolved command target lists
+  ansible.builtin.set_fact:
+    command_discovered_paths: "{{ command_targets_scan.stdout_lines | default([]) }}"
+    command_resolved_paths: "{{ command_targets_scan.stdout_lines | default([]) }}"
+    command_targets: "{{ command_targets_scan.stdout_lines | default([]) }}"
+
+- name: Show command integrity discovery summary
+  ansible.builtin.debug:
+    msg:
+      - "=== Command Integrity Discovery ==="
+      - "Scan dirs: {{ command_integrity_scan_dirs | join(', ') }}"
+      - "Discovered entries: {{ command_discovered_paths | length }}"
+      - "Resolved regular targets: {{ command_targets | length }}"
+      - "Validation mode: {{ command_integrity_validation_mode | default('parallel') }}"
+
+- name: Validate command targets with sequential includes
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/checks/command_integrity/validate_item.yml"
+  loop: >-
+    {{
+      command_targets
+      if (command_integrity_validation_mode | default('parallel')) == 'sequential'
+      else []
+    }}
+  loop_control:
+    loop_var: cmd_item
+    label: "{{ cmd_item }}"
+
+- name: Validate command targets in parallel workers
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/checks/command_integrity/validate_parallel.yml"
+  when: (command_integrity_validation_mode | default('parallel')) == 'parallel'
+
+- name: Deduplicate command integrity buckets
+  ansible.builtin.set_fact:
+    command_integrity_valid: "{{ command_integrity_valid | unique }}"
+    command_integrity_corrupted: "{{ command_integrity_corrupted | unique }}"
+    command_integrity_errors: "{{ command_integrity_errors | unique }}"
+
+- name: Show command integrity summary
+  ansible.builtin.debug:
+    msg:
+      - "=== Command Integrity Summary ==="
+      - "Valid: {{ command_integrity_valid | length }}"
+      - "Corrupted: {{ command_integrity_corrupted | length }}"
+      - "Probe errors: {{ command_integrity_errors | length }}"
+
+- name: Append command_integrity_valid to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: command_integrity_valid
+    new_items: "{{ command_integrity_valid }}"
+  when: (command_integrity_valid | length) > 0
+
+- name: Append command_integrity_corrupted to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: command_integrity_corrupted
+    new_items: "{{ command_integrity_corrupted }}"
+  when: (command_integrity_corrupted | length) > 0
+
+- name: Append command_integrity_errors to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: command_integrity_errors
+    new_items: "{{ command_integrity_errors }}"
+  when: (command_integrity_errors | length) > 0
+
+- name: Fail in strict exam mode when command integrity policy violations exist
+  ansible.builtin.assert:
+    that:
+      - (command_integrity_corrupted | length) == 0
+    fail_msg: >
+      Strict exam mode failed:
+      corrupted={{ command_integrity_corrupted | length }}
+  when: command_integrity_strict_mode | default(false)
