@@ -37,6 +37,7 @@
       ansible.builtin.copy:
         dest: /tmp/results.yml
         content: |
+          ---
           # Generated bootloader check results
           # Buckets: bootloader_valid, bootloader_corrupted, bootloader_errors, bootloader_missing
           {}

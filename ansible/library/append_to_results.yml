@@ -39,7 +39,7 @@
 - name: Write merged results.yml (with backup)
   ansible.builtin.copy:
     dest: /tmp/results.yml
-    content: "{{ _merged | to_nice_yaml }}"
+    content: "{{ _merged | to_nice_yaml(explicit_start=True) }}"
     mode: "0644"
     backup: yes
   when: (new_items | default([]) | length) > 0
