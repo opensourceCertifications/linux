@@ -1,0 +1,115 @@
+---
+# checks.yml - Refactored bootloader and system integrity checks for AlmaLinux 9
+#
+# This playbook is run AFTER an exam/chaos session completes and the user is logged out.
+# It validates that the testenv system has been properly restored to production state.
+#
+# Key differences from old approach:
+#   - No dependency on monitor-provided work_items
+#   - No dynamic classification of test files
+#   - Simple: discover actual bootloader files and validate them
+#   - Results aggregated into /tmp/results.yml (YAML->JSON structure)
+#
+# Usage:
+#   ansible-playbook -i <inventory> checks.yml
+#
+# Results are fetched to: ./results/testenv-results.yml
+
+################################################################################
+# Play 1: Setup testenv and initialize results
+################################################################################
+
+- name: Initialize testenv and results
+  hosts: testenv
+  gather_facts: true
+  remote_user: root
+  tasks:
+    - name: Ensure required tools are installed
+      ansible.builtin.package:
+        name:
+          - dracut # provides lsinitrd
+          - grub2-tools # provides grubby, grub2-editenv
+          - file # file type detection
+          - dnf-plugins-core # repoquery (for future use)
+        state: present
+
+    - name: Initialize /tmp/results.yml to empty dict
+      ansible.builtin.copy:
+        dest: /tmp/results.yml
+        content: |
+          # Generated bootloader check results
+          # Buckets: bootloader_valid, bootloader_corrupted, bootloader_errors, bootloader_missing
+          {}
+        mode: "0644"
+
+    - name: Show collected facts
+      ansible.builtin.debug:
+        msg:
+          - "System: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Hostname: {{ ansible_hostname }}"
+          - "Kernel running: {{ ansible_kernel }}"
+
+################################################################################
+# Play 2: Run all checks on testenv
+################################################################################
+
+- name: Run all system checks on testenv
+  hosts: testenv
+  gather_facts: false
+  remote_user: root
+  tasks:
+    # Dynamically discover check files in the playbook's checks/ directory
+    - name: Discover all check task files
+      ansible.builtin.find:
+        paths: "{{ playbook_dir }}/checks"
+        patterns: "*.yml,*.yaml"
+        file_type: file
+      register: check_files
+      delegate_to: localhost
+
+    - name: Sort check file list
+      ansible.builtin.set_fact:
+        check_files_sorted: "{{ check_files.files | map(attribute='path') | sort }}"
+      delegate_to: localhost
+
+    - name: Include each check task file
+      ansible.builtin.include_tasks: "{{ item }}"
+      vars:
+        # Handy per-check vars for context in included files
+        _check_name: "{{ item | basename | regex_replace('\\.(yml|yaml)$', '') }}"
+        _check_workdir: "/tmp/{{ item | basename | regex_replace('\\.(yml|yaml)$', '') }}"
+      loop: "{{ check_files_sorted }}"
+      loop_control:
+        label: "{{ item | basename }}"
+
+    - name: Show completion message
+      ansible.builtin.debug:
+        msg:
+          - "All checks completed"
+          - "Results written to /tmp/results.yml on testenv"
+
+################################################################################
+# Play 3: Fetch results back to monitor
+################################################################################
+
+- name: Fetch results to monitor
+  hosts: testenv
+  gather_facts: false
+  remote_user: root
+  tasks:
+    - name: Fetch /tmp/results.yml back to monitor
+      ansible.builtin.fetch:
+        src: /tmp/results.yml
+        dest: "{{ playbook_dir }}/results/{{ inventory_hostname }}-results.yml"
+        flat: true
+        fail_on_missing: false
+
+- name: Show result location
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display result summary
+      ansible.builtin.debug:
+        msg:
+          - "Check results have been fetched"
+          - "Location: {{ playbook_dir }}/results/"

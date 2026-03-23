@@ -1,0 +1,26 @@
+---
+- name: Read grub.cfg content
+  ansible.builtin.slurp:
+    src: "{{ bl_item.path }}"
+  register: grubcfg_raw
+  changed_when: false
+  failed_when: false
+
+- name: Record grub.cfg as valid
+  ansible.builtin.set_fact:
+    bootloader_valid: "{{ bootloader_valid + [bl_item.path] }}"
+  when:
+    - not (grubcfg_raw is failed)
+    - (grubcfg_raw.content | b64decode) is regex('(?m)(blscfg|menuentry)')
+
+- name: Record grub.cfg as corrupted
+  ansible.builtin.set_fact:
+    bootloader_corrupted: "{{ bootloader_corrupted + [bl_item.path] }}"
+  when:
+    - not (grubcfg_raw is failed)
+    - (grubcfg_raw.content | b64decode) is not regex('(?m)(blscfg|menuentry)')
+
+- name: Record grub.cfg as check error
+  ansible.builtin.set_fact:
+    bootloader_errors: "{{ bootloader_errors + [bl_item.path] }}"
+  when: grubcfg_raw is failed

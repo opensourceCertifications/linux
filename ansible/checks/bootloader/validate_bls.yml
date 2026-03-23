@@ -1,0 +1,33 @@
+---
+- name: Read BLS entry content
+  ansible.builtin.slurp:
+    src: "{{ bl_item.path }}"
+  register: bls_raw
+  changed_when: false
+  failed_when: false
+
+- name: Record BLS entry as valid
+  ansible.builtin.set_fact:
+    bootloader_valid: "{{ bootloader_valid + [bl_item.path] }}"
+  when:
+    - not (bls_raw is failed)
+    - (bls_raw.content | b64decode) is regex('(?m)^title\\s+')
+    - (bls_raw.content | b64decode) is regex('(?m)^linux\\s+')
+    - (bls_raw.content | b64decode) is regex('(?m)^initrd\\s+')
+
+- name: Record BLS entry as corrupted
+  ansible.builtin.set_fact:
+    bootloader_corrupted: "{{ bootloader_corrupted + [bl_item.path] }}"
+  when:
+    - not (bls_raw is failed)
+    - >-
+      not (
+        ((bls_raw.content | b64decode) is regex('(?m)^title\\s+'))
+        and ((bls_raw.content | b64decode) is regex('(?m)^linux\\s+'))
+        and ((bls_raw.content | b64decode) is regex('(?m)^initrd\\s+'))
+      )
+
+- name: Record BLS entry as check error
+  ansible.builtin.set_fact:
+    bootloader_errors: "{{ bootloader_errors + [bl_item.path] }}"
+  when: bls_raw is failed

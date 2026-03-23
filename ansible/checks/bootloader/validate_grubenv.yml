@@ -1,0 +1,44 @@
+---
+- name: Validate grubenv with grub2-editenv
+  ansible.builtin.command: grub2-editenv "{{ bl_item.path }}" list
+  register: grubenv_cmd
+  changed_when: false
+  failed_when: false
+
+- name: Read grubenv header fallback
+  ansible.builtin.command: head -n 1 -- "{{ bl_item.path }}"
+  register: grubenv_header
+  changed_when: false
+  failed_when: false
+  when: grubenv_cmd.rc != 0
+
+- name: Record grubenv as valid via grub2-editenv
+  ansible.builtin.set_fact:
+    bootloader_valid: "{{ bootloader_valid + [bl_item.path] }}"
+  when: grubenv_cmd.rc == 0
+
+- name: Record grubenv as valid via header fallback
+  ansible.builtin.set_fact:
+    bootloader_valid: "{{ bootloader_valid + [bl_item.path] }}"
+  when:
+    - grubenv_cmd.rc != 0
+    - grubenv_header is defined
+    - grubenv_header.rc == 0
+    - grubenv_header.stdout == '# GRUB Environment Block'
+
+- name: Record grubenv as corrupted
+  ansible.builtin.set_fact:
+    bootloader_corrupted: "{{ bootloader_corrupted + [bl_item.path] }}"
+  when:
+    - grubenv_cmd.rc != 0
+    - grubenv_header is defined
+    - grubenv_header.rc == 0
+    - grubenv_header.stdout != '# GRUB Environment Block'
+
+- name: Record grubenv as check error
+  ansible.builtin.set_fact:
+    bootloader_errors: "{{ bootloader_errors + [bl_item.path] }}"
+  when:
+    - grubenv_cmd.rc != 0
+    - grubenv_header is defined
+    - grubenv_header.rc != 0

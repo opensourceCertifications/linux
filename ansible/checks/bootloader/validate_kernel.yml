@@ -1,0 +1,25 @@
+---
+- name: Read kernel file signature
+  ansible.builtin.command: file -b -- "{{ bl_item.path }}"
+  register: kernel_desc
+  changed_when: false
+  failed_when: false
+
+- name: Record kernel as valid
+  ansible.builtin.set_fact:
+    bootloader_valid: "{{ bootloader_valid + [bl_item.path] }}"
+  when:
+    - kernel_desc.rc == 0
+    - kernel_desc.stdout is regex('(?i)linux kernel')
+
+- name: Record kernel as corrupted
+  ansible.builtin.set_fact:
+    bootloader_corrupted: "{{ bootloader_corrupted + [bl_item.path] }}"
+  when:
+    - kernel_desc.rc == 0
+    - kernel_desc.stdout is not regex('(?i)linux kernel')
+
+- name: Record kernel as check error
+  ansible.builtin.set_fact:
+    bootloader_errors: "{{ bootloader_errors + [bl_item.path] }}"
+  when: kernel_desc.rc != 0

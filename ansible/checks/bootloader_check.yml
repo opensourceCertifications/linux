@@ -1,0 +1,401 @@
+---
+# bootloader_check.yml - Pure Ansible bootloader integrity checks for AlmaLinux 9
+
+- name: Load bootloader policy
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/vars/bootloader_policy.yml"
+
+- name: Initialize bootloader check result buckets
+  ansible.builtin.set_fact:
+    bootloader_valid: []
+    bootloader_corrupted: []
+    bootloader_missing: []
+    bootloader_errors: []
+    bootloader_unknown_targets: []
+    bootloader_not_latest: []
+    bootloader_targets: []
+
+#############################################
+# Discovery phase
+#############################################
+
+- name: Discover kernel images in /boot
+  ansible.builtin.find:
+    paths: /boot
+    patterns: "{{ bootloader_kernel_patterns }}"
+    file_type: file
+  register: discovered_kernels
+
+- name: Discover initramfs images in /boot
+  ansible.builtin.find:
+    paths: /boot
+    patterns: "{{ bootloader_initramfs_patterns }}"
+    file_type: file
+  register: discovered_initramfs
+
+- name: Check GRUB config candidate paths
+  ansible.builtin.stat:
+    path: "{{ grub_cfg_path }}"
+  loop: "{{ bootloader_grubcfg_candidates }}"
+  loop_control:
+    loop_var: grub_cfg_path
+  register: grub_cfg_check
+
+- name: Check GRUB environment candidate paths
+  ansible.builtin.stat:
+    path: "{{ grub_env_path }}"
+  loop: "{{ bootloader_grubenv_candidates }}"
+  loop_control:
+    loop_var: grub_env_path
+  register: grub_env_check
+
+- name: Discover BLS entries
+  ansible.builtin.find:
+    paths: /boot/loader/entries
+    patterns: "{{ bootloader_bls_patterns }}"
+    file_type: file
+  register: discovered_bls
+  ignore_errors: true
+
+- name: Discover EFI binaries
+  ansible.builtin.find:
+    paths: /boot/efi
+    patterns: "{{ bootloader_efi_patterns }}"
+    file_type: file
+    recurse: true
+  register: discovered_efi
+  ignore_errors: true
+
+- name: Build typed targets from discovered kernels
+  ansible.builtin.set_fact:
+    bootloader_targets: "{{ bootloader_targets + [{'path': kernel_item.path, 'class': 'kernel'}] }}"
+  loop: "{{ discovered_kernels.files | default([]) }}"
+  loop_control:
+    loop_var: kernel_item
+    label: "{{ kernel_item.path }}"
+
+- name: Build typed targets from discovered initramfs images
+  ansible.builtin.set_fact:
+    bootloader_targets: "{{ bootloader_targets + [{'path': initramfs_item.path, 'class': 'initramfs'}] }}"
+  loop: "{{ discovered_initramfs.files | default([]) }}"
+  loop_control:
+    loop_var: initramfs_item
+    label: "{{ initramfs_item.path }}"
+
+- name: Build typed targets from discovered BLS entries
+  ansible.builtin.set_fact:
+    bootloader_targets: "{{ bootloader_targets + [{'path': bls_item.path, 'class': 'bls'}] }}"
+  loop: "{{ discovered_bls.files | default([]) }}"
+  loop_control:
+    loop_var: bls_item
+    label: "{{ bls_item.path }}"
+
+- name: Build typed targets from discovered EFI binaries
+  ansible.builtin.set_fact:
+    bootloader_targets: "{{ bootloader_targets + [{'path': efi_item.path, 'class': 'efi'}] }}"
+  loop: "{{ discovered_efi.files | default([]) }}"
+  loop_control:
+    loop_var: efi_item
+    label: "{{ efi_item.path }}"
+
+- name: Add GRUB config targets that exist
+  ansible.builtin.set_fact:
+    bootloader_targets: "{{ bootloader_targets + [{'path': cfg_result.grub_cfg_path, 'class': 'grubcfg'}] }}"
+  loop: "{{ grub_cfg_check.results | default([]) }}"
+  loop_control:
+    loop_var: cfg_result
+    label: "{{ cfg_result.grub_cfg_path }}"
+  when: cfg_result.stat.exists
+
+- name: Add GRUB environment targets that exist
+  ansible.builtin.set_fact:
+    bootloader_targets: "{{ bootloader_targets + [{'path': env_result.grub_env_path, 'class': 'grubenv'}] }}"
+  loop: "{{ grub_env_check.results | default([]) }}"
+  loop_control:
+    loop_var: env_result
+    label: "{{ env_result.grub_env_path }}"
+  when: env_result.stat.exists
+
+- name: Show active mutation surface policy
+  ansible.builtin.debug:
+    msg:
+      - "Mutation patterns (from chaos break): {{ bootloader_mutation_patterns | join(', ') }}"
+
+- name: Build deduplicated path list from discovered targets
+  ansible.builtin.set_fact:
+    bootloader_target_paths: "{{ bootloader_targets | map(attribute='path') | unique | list }}"
+
+- name: Expand chaos mutation patterns on testenv
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for pat in {{ bootloader_mutation_patterns | map('quote') | join(' ') }}; do
+      compgen -G "$pat" || true
+    done | sort -u
+  args:
+    executable: /bin/bash
+  register: mutation_surface_matches
+  changed_when: false
+  failed_when: false
+
+- name: Record unknown mutation-surface targets
+  ansible.builtin.set_fact:
+    bootloader_unknown_targets: >-
+      {{
+        (mutation_surface_matches.stdout_lines | default([]))
+        | difference(bootloader_target_paths | default([]))
+        | unique
+      }}
+
+- name: Check running/default kernel currency against repo latest
+  when: bootloader_enforce_latest_in_use | default(true)
+  block:
+    - name: Read running kernel release
+      ansible.builtin.command: uname -r
+      register: running_kernel_release
+      changed_when: false
+      failed_when: false
+
+    - name: Read default boot kernel path
+      ansible.builtin.command: grubby --default-kernel
+      register: default_kernel_path
+      changed_when: false
+      failed_when: false
+
+    - name: Read machine architecture
+      ansible.builtin.command: uname -m
+      register: machine_arch
+      changed_when: false
+      failed_when: false
+
+    - name: Query latest available kernel from repos
+      ansible.builtin.command:
+        argv:
+          - dnf
+          - -q
+          - repoquery
+          - --latest-limit
+          - "1"
+          - --qf
+          - "%{version}-%{release}.%{arch}"
+          - --arch
+          - "{{ machine_arch.stdout | default('x86_64') | trim }}"
+          - kernel
+      register: repo_latest_kernel
+      changed_when: false
+      failed_when: false
+
+    - name: Normalize kernel currency values
+      ansible.builtin.set_fact:
+        _running_kernel_rel: "{{ running_kernel_release.stdout | default('') | trim }}"
+        _default_kernel_path_raw: "{{ default_kernel_path.stdout | default('') | trim }}"
+        _repo_latest_kernel_rel: "{{ repo_latest_kernel.stdout | default('') | trim }}"
+
+    - name: Derive default kernel release
+      ansible.builtin.set_fact:
+        _default_kernel_rel: >-
+          {{
+            (_default_kernel_path_raw | basename)
+            | regex_replace('^vmlinuz-', '')
+          }}
+
+    - name: Record kernel currency check errors
+      ansible.builtin.set_fact:
+        bootloader_errors: >-
+          {{
+            bootloader_errors
+            + (
+              []
+              if running_kernel_release.rc == 0
+              else ['Failed to read running kernel via uname -r']
+            )
+            + (
+              []
+              if default_kernel_path.rc == 0
+              else ['Failed to read default kernel via grubby --default-kernel']
+            )
+            + (
+              []
+              if repo_latest_kernel.rc == 0
+              and (_repo_latest_kernel_rel | length) > 0
+              else ['Failed to query latest kernel via dnf repoquery']
+            )
+          }}
+
+    - name: Record not-latest running/default kernels
+      ansible.builtin.set_fact:
+        bootloader_not_latest: >-
+          {{
+            bootloader_not_latest
+            + (
+              []
+              if (_repo_latest_kernel_rel | length) == 0
+              else (
+                []
+                if _running_kernel_rel == _repo_latest_kernel_rel
+                else [
+                  'running_kernel:'
+                  ~ _running_kernel_rel
+                  ~ ' repo_latest:'
+                  ~ _repo_latest_kernel_rel
+                ]
+              )
+            )
+            + (
+              []
+              if (_repo_latest_kernel_rel | length) == 0
+              else (
+                []
+                if _default_kernel_rel == _repo_latest_kernel_rel
+                else [
+                  'default_kernel:'
+                  ~ _default_kernel_rel
+                  ~ ' repo_latest:'
+                  ~ _repo_latest_kernel_rel
+                ]
+              )
+            )
+          }}
+
+#############################################
+# Validation phase
+#############################################
+
+- name: Validate each discovered target using typed include
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/checks/bootloader/validate_item.yml"
+  loop: "{{ bootloader_targets }}"
+  loop_control:
+    loop_var: bl_item
+    label: "{{ bl_item.class }}: {{ bl_item.path }}"
+
+#############################################
+# Critical missing files check
+#############################################
+
+- name: Check critical bootloader artifacts exist
+  block:
+    - name: Assert at least one kernel exists
+      ansible.builtin.assert:
+        that:
+          - (discovered_kernels.files | default([]) | length) > 0
+        fail_msg: "No kernel images found in /boot"
+      register: kernel_presence
+      ignore_errors: true
+
+    - name: Assert at least one initramfs exists
+      ansible.builtin.assert:
+        that:
+          - (discovered_initramfs.files | default([]) | length) > 0
+        fail_msg: "No initramfs images found in /boot"
+      register: initramfs_presence
+      ignore_errors: true
+
+    - name: Assert at least one GRUB config exists
+      ansible.builtin.assert:
+        that:
+          - (grub_cfg_check.results | default([]) | selectattr('stat.exists', 'equalto', true) | list | length) > 0
+        fail_msg: "No GRUB config found in known paths"
+      register: grubcfg_presence
+      ignore_errors: true
+
+    - name: Assert at least one GRUB environment file exists
+      ansible.builtin.assert:
+        that:
+          - (grub_env_check.results | default([]) | selectattr('stat.exists', 'equalto', true) | list | length) > 0
+        fail_msg: "No GRUB environment file found in known paths"
+      register: grubenv_presence
+      ignore_errors: true
+
+    - name: Record missing critical artifacts
+      ansible.builtin.set_fact:
+        bootloader_missing: >-
+          {{
+            bootloader_missing
+            + ([] if (kernel_presence is not failed) else ['No kernel images in /boot'])
+            + ([] if (initramfs_presence is not failed) else ['No initramfs images in /boot'])
+            + ([] if (grubcfg_presence is not failed) else ['/boot/grub2/grub.cfg or /boot/grub/grub.cfg'])
+            + ([] if (grubenv_presence is not failed) else ['/boot/grub2/grubenv or /boot/grub/grubenv'])
+          }}
+
+#############################################
+# Normalize and aggregate results
+#############################################
+
+- name: Deduplicate result buckets
+  ansible.builtin.set_fact:
+    bootloader_valid: "{{ bootloader_valid | unique }}"
+    bootloader_corrupted: "{{ bootloader_corrupted | unique }}"
+    bootloader_errors: "{{ bootloader_errors | unique }}"
+    bootloader_missing: "{{ bootloader_missing | unique }}"
+    bootloader_unknown_targets: "{{ bootloader_unknown_targets | unique }}"
+    bootloader_not_latest: "{{ bootloader_not_latest | unique }}"
+
+- name: Show bootloader check summary
+  ansible.builtin.debug:
+    msg:
+      - "=== Bootloader Check Summary ==="
+      - "Discovered targets: {{ bootloader_targets | length }}"
+      - "Valid files: {{ bootloader_valid | length }}"
+      - "Corrupted files: {{ bootloader_corrupted | length }}"
+      - "Errors during check: {{ bootloader_errors | length }}"
+      - "Critical missing: {{ bootloader_missing | length }}"
+      - "Unknown mutation targets: {{ bootloader_unknown_targets | length }}"
+      - "Not-latest kernel findings: {{ bootloader_not_latest | length }}"
+
+- name: Append bootloader_valid to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: "bootloader_valid"
+    new_items: "{{ bootloader_valid }}"
+  when: (bootloader_valid | length) > 0
+
+- name: Append bootloader_corrupted to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: "bootloader_corrupted"
+    new_items: "{{ bootloader_corrupted }}"
+  when: (bootloader_corrupted | length) > 0
+
+- name: Append bootloader_errors to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: "bootloader_errors"
+    new_items: "{{ bootloader_errors }}"
+  when: (bootloader_errors | length) > 0
+
+- name: Append bootloader_missing to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: "bootloader_missing"
+    new_items: "{{ bootloader_missing }}"
+  when: (bootloader_missing | length) > 0
+
+- name: Append bootloader_unknown_targets to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: "bootloader_unknown_targets"
+    new_items: "{{ bootloader_unknown_targets }}"
+  when: (bootloader_unknown_targets | length) > 0
+
+- name: Append bootloader_not_latest to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+  vars:
+    result_key: "bootloader_not_latest"
+    new_items: "{{ bootloader_not_latest }}"
+  when: (bootloader_not_latest | length) > 0
+
+- name: Fail in strict exam mode when policy violations exist
+  ansible.builtin.assert:
+    that:
+      - (bootloader_missing | length) == 0
+      - (bootloader_unknown_targets | length) == 0
+      - >-
+        {{
+          (not (bootloader_strict_fail_on_not_latest | default(true)))
+          or ((bootloader_not_latest | length) == 0)
+        }}
+    fail_msg: >-
+      Strict exam mode failed:
+      missing={{ bootloader_missing | length }},
+      unknown_targets={{ bootloader_unknown_targets | length }},
+      not_latest={{ bootloader_not_latest | length }}
+  when: bootloader_strict_mode | default(false)

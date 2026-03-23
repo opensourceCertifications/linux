@@ -1,0 +1,25 @@
+---
+- name: Read EFI file signature
+  ansible.builtin.command: file -b -- "{{ bl_item.path }}"
+  register: efi_desc
+  changed_when: false
+  failed_when: false
+
+- name: Record EFI as valid
+  ansible.builtin.set_fact:
+    bootloader_valid: "{{ bootloader_valid + [bl_item.path] }}"
+  when:
+    - efi_desc.rc == 0
+    - efi_desc.stdout is regex('(?i)efi application')
+
+- name: Record EFI as corrupted
+  ansible.builtin.set_fact:
+    bootloader_corrupted: "{{ bootloader_corrupted + [bl_item.path] }}"
+  when:
+    - efi_desc.rc == 0
+    - efi_desc.stdout is not regex('(?i)efi application')
+
+- name: Record EFI as check error
+  ansible.builtin.set_fact:
+    bootloader_errors: "{{ bootloader_errors + [bl_item.path] }}"
+  when: efi_desc.rc != 0

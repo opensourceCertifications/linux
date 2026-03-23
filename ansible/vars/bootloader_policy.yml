@@ -1,0 +1,43 @@
+---
+# Centralized policy for bootloader integrity checks.
+# Keep this aligned with go/breaks/cheap/broken_boot_loader/broken_boot_loader.go patterns.
+
+# Mutation surface used by chaos break today.
+bootloader_mutation_patterns:
+  - /boot/vmlinuz-*
+  - /boot/initramfs-*.img
+  - /boot/grub2/grub.cfg
+  - /boot/loader/entries/*.conf
+  - /boot/grub2/grubenv
+
+# Discovery policy (can evolve per distro/profile without changing task logic).
+bootloader_kernel_patterns:
+  - vmlinuz-*
+
+bootloader_initramfs_patterns:
+  - initramfs-*.img
+
+bootloader_bls_patterns:
+  - "*.conf"
+
+bootloader_efi_patterns:
+  - "*.efi"
+
+bootloader_grubcfg_candidates:
+  - /boot/grub2/grub.cfg
+  - /boot/grub/grub.cfg
+
+bootloader_grubenv_candidates:
+  - /boot/grub2/grubenv
+  - /boot/grub/grubenv
+
+# Optional strictness toggle for future expansion.
+# false: report-only buckets
+# true: can be used to fail play when critical buckets are non-empty
+bootloader_strict_mode: false
+
+# Validate that running/default kernel release is current versus repo latest kernel.
+bootloader_enforce_latest_in_use: true
+
+# In strict mode, fail if kernel currency checks report not-latest findings.
+bootloader_strict_fail_on_not_latest: true

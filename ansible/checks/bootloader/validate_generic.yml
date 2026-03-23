@@ -1,0 +1,40 @@
+---
+- name: Check RPM ownership
+  ansible.builtin.command: rpm -qf -- "{{ bl_item.path }}"
+  register: generic_owner
+  changed_when: false
+  failed_when: false
+
+- name: Verify RPM file integrity
+  ansible.builtin.command: rpm -Vf -- "{{ bl_item.path }}"
+  register: generic_verify
+  changed_when: false
+  failed_when: false
+  when: generic_owner.rc == 0
+
+- name: Record generic target as corrupted (not RPM-owned)
+  ansible.builtin.set_fact:
+    bootloader_corrupted: "{{ bootloader_corrupted + [bl_item.path] }}"
+  when: generic_owner.rc != 0
+
+- name: Record generic target as valid (RPM verify clean)
+  ansible.builtin.set_fact:
+    bootloader_valid: "{{ bootloader_valid + [bl_item.path] }}"
+  when:
+    - generic_owner.rc == 0
+    - generic_verify.rc == 0
+    - (generic_verify.stdout | trim) == ''
+
+- name: Record generic target as corrupted (RPM verify mismatch)
+  ansible.builtin.set_fact:
+    bootloader_corrupted: "{{ bootloader_corrupted + [bl_item.path] }}"
+  when:
+    - generic_owner.rc == 0
+    - generic_verify.rc == 1
+
+- name: Record generic target as check error
+  ansible.builtin.set_fact:
+    bootloader_errors: "{{ bootloader_errors + [bl_item.path] }}"
+  when:
+    - generic_owner.rc == 0
+    - generic_verify.rc not in [0, 1]

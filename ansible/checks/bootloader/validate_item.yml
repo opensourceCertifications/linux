@@ -1,0 +1,16 @@
+---
+- name: Validate target with mapped include
+  ansible.builtin.include_tasks: >-
+    {{
+      playbook_dir
+      ~ '/checks/bootloader/'
+      ~ validator_map.get(bl_item.class, 'validate_generic.yml')
+    }}
+  vars:
+    validator_map:
+      kernel: validate_kernel.yml
+      initramfs: validate_initramfs.yml
+      grubcfg: validate_grubcfg.yml
+      grubenv: validate_grubenv.yml
+      bls: validate_bls.yml
+      efi: validate_efi.yml

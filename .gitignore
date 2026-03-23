@@ -25,3 +25,5 @@ node_modules/
 
 ansible_vars_work_items.yml
 monitor/ansible/ansible_vars_work_items.yml
+
+results/

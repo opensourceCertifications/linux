@@ -1,0 +1,23 @@
+---
+- name: Validate initramfs archive readability
+  ansible.builtin.command: lsinitrd "{{ bl_item.path }}"
+  register: initramfs_check
+  changed_when: false
+  failed_when: false
+
+- name: Record initramfs as valid
+  ansible.builtin.set_fact:
+    bootloader_valid: "{{ bootloader_valid + [bl_item.path] }}"
+  when: initramfs_check.rc == 0
+
+- name: Record initramfs as check error
+  ansible.builtin.set_fact:
+    bootloader_errors: "{{ bootloader_errors + [bl_item.path] }}"
+  when: initramfs_check.rc == 127
+
+- name: Record initramfs as corrupted
+  ansible.builtin.set_fact:
+    bootloader_corrupted: "{{ bootloader_corrupted + [bl_item.path] }}"
+  when:
+    - initramfs_check.rc != 0
+    - initramfs_check.rc != 127
