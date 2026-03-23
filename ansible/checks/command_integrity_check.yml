@@ -82,26 +82,28 @@
       - "Corrupted: {{ command_integrity_corrupted | length }}"
       - "Probe errors: {{ command_integrity_errors | length }}"
 
-- name: Append command_integrity_valid to results
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+- name: Write command integrity check summary to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/write_check_summary.yml"
   vars:
-    result_key: command_integrity_valid
-    new_items: "{{ command_integrity_valid }}"
-  when: (command_integrity_valid | length) > 0
-
-- name: Append command_integrity_corrupted to results
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
-  vars:
-    result_key: command_integrity_corrupted
-    new_items: "{{ command_integrity_corrupted }}"
-  when: (command_integrity_corrupted | length) > 0
-
-- name: Append command_integrity_errors to results
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
-  vars:
-    result_key: command_integrity_errors
-    new_items: "{{ command_integrity_errors }}"
-  when: (command_integrity_errors | length) > 0
+    check_name: command_integrity
+    check_summary: >-
+      {{
+        {
+          'status': 'FAIL' if (
+            (command_integrity_corrupted | length) > 0
+            or (command_integrity_errors | length) > 0
+          ) else 'PASS',
+          'checked': command_targets | length
+        }
+        | combine(
+            {'corrupted': command_integrity_corrupted}
+            if (command_integrity_corrupted | length) > 0 else {}
+          )
+        | combine(
+            {'errors': command_integrity_errors}
+            if (command_integrity_errors | length) > 0 else {}
+          )
+      }}
 
 - name: Fail in strict exam mode when command integrity policy violations exist
   ansible.builtin.assert:

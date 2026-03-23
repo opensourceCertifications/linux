@@ -341,47 +341,44 @@
       - "Unknown mutation targets: {{ bootloader_unknown_targets | length }}"
       - "Not-latest kernel findings: {{ bootloader_not_latest | length }}"
 
-- name: Append bootloader_valid to results
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
+- name: Write bootloader check summary to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/write_check_summary.yml"
   vars:
-    result_key: "bootloader_valid"
-    new_items: "{{ bootloader_valid }}"
-  when: (bootloader_valid | length) > 0
-
-- name: Append bootloader_corrupted to results
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
-  vars:
-    result_key: "bootloader_corrupted"
-    new_items: "{{ bootloader_corrupted }}"
-  when: (bootloader_corrupted | length) > 0
-
-- name: Append bootloader_errors to results
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
-  vars:
-    result_key: "bootloader_errors"
-    new_items: "{{ bootloader_errors }}"
-  when: (bootloader_errors | length) > 0
-
-- name: Append bootloader_missing to results
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
-  vars:
-    result_key: "bootloader_missing"
-    new_items: "{{ bootloader_missing }}"
-  when: (bootloader_missing | length) > 0
-
-- name: Append bootloader_unknown_targets to results
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
-  vars:
-    result_key: "bootloader_unknown_targets"
-    new_items: "{{ bootloader_unknown_targets }}"
-  when: (bootloader_unknown_targets | length) > 0
-
-- name: Append bootloader_not_latest to results
-  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/append_to_results.yml"
-  vars:
-    result_key: "bootloader_not_latest"
-    new_items: "{{ bootloader_not_latest }}"
-  when: (bootloader_not_latest | length) > 0
+    check_name: bootloader
+    check_summary: >-
+      {{
+        {
+          'status': 'FAIL' if (
+            (bootloader_corrupted | length) > 0
+            or (bootloader_errors | length) > 0
+            or (bootloader_missing | length) > 0
+            or (bootloader_unknown_targets | length) > 0
+            or (bootloader_not_latest | length) > 0
+          ) else 'PASS',
+          'checked': (
+            (bootloader_valid | length)
+            + (bootloader_corrupted | length)
+            + (bootloader_errors | length)
+            + (bootloader_missing | length)
+          )
+        }
+        | combine(
+            {'corrupted': bootloader_corrupted}
+            if (bootloader_corrupted | length) > 0 else {}
+          )
+        | combine(
+            {'errors': bootloader_errors}
+            if (bootloader_errors | length) > 0 else {}
+          )
+        | combine(
+            {'missing': bootloader_missing}
+            if (bootloader_missing | length) > 0 else {}
+          )
+        | combine(
+            {'not_latest': bootloader_not_latest}
+            if (bootloader_not_latest | length) > 0 else {}
+          )
+      }}
 
 - name: Fail in strict exam mode when policy violations exist
   ansible.builtin.assert:

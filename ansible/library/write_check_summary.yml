@@ -1,0 +1,31 @@
+## Required vars:
+##   check_name:    string  # top-level results key (e.g. "bootloader", "command_integrity")
+##   check_summary: dict    # {status: PASS|FAIL, checked: N, ...failure lists}
+
+---
+- name: Stat /tmp/results.yml
+  ansible.builtin.stat:
+    path: /tmp/results.yml
+  register: _sum_stat
+
+- name: Read existing /tmp/results.yml
+  ansible.builtin.slurp:
+    src: /tmp/results.yml
+  register: _sum_slurp
+  when: _sum_stat.stat.exists
+
+- name: Build existing dict (or empty)
+  ansible.builtin.set_fact:
+    _sum_existing: "{}"
+
+- name: Parse existing YAML
+  ansible.builtin.set_fact:
+    _sum_existing: "{{ _sum_slurp.content | b64decode | from_yaml | default({}, true) }}"
+  when: _sum_stat.stat.exists
+
+- name: Write check summary
+  ansible.builtin.copy:
+    dest: /tmp/results.yml
+    content: "{{ (_sum_existing | combine({check_name: check_summary})) | to_nice_yaml(explicit_start=True) }}"
+    mode: "0644"
+    backup: yes

@@ -11,20 +11,20 @@
       set -e
 
       if (( verify_rc == 0 )); then
-        printf 'VALID|%s\n' "$target"
+        printf 'VALID:%s\n' "$target"
       elif (( verify_rc == 1 )); then
-        printf 'CORRUPTED|%s\n' "$target"
+        printf 'CORRUPTED:%s\n' "$target"
       else
-        printf 'ERROR|%s|rpm verify failed\n' "$target"
+        printf 'ERROR:%s:rpm verify failed\n' "$target"
       fi
     }
 
     export -f check_one
 
-    xargs -r -P {{ command_integrity_parallel_workers | int }} -n1 -d '\n' \
-      bash -lc 'check_one "$1"' _ <<'EOF_TARGETS'
-    {{ command_targets | join('\n') }}
-    EOF_TARGETS
+    for target in {{ command_targets | map('quote') | join(' ') }}; do
+      printf '%s\n' "$target"
+    done | xargs -r -P {{ command_integrity_parallel_workers | int }} -n1 -d $'\n' \
+      bash -lc 'check_one "$1"' _
   args:
     executable: /bin/bash
   register: command_parallel_results
@@ -38,8 +38,8 @@
         command_integrity_valid
         + (
           command_parallel_results.stdout_lines
-          | select('match', '^VALID\\|')
-          | map('regex_replace', '^VALID\\|', '')
+          | select('match', '^VALID:')
+          | map('regex_replace', '^VALID:', '')
           | list
         )
       }}
@@ -51,8 +51,8 @@
         command_integrity_corrupted
         + (
           command_parallel_results.stdout_lines
-          | select('match', '^CORRUPTED\\|')
-          | map('regex_replace', '^CORRUPTED\\|', '')
+          | select('match', '^CORRUPTED:')
+          | map('regex_replace', '^CORRUPTED:', '')
           | list
         )
       }}
@@ -64,8 +64,8 @@
         command_integrity_errors
         + (
           command_parallel_results.stdout_lines
-          | select('match', '^ERROR\\|')
-          | map('regex_replace', '^ERROR\\|', '')
+          | select('match', '^ERROR:')
+          | map('regex_replace', '^ERROR:', '')
           | list
         )
       }}
