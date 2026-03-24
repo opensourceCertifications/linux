@@ -1,0 +1,185 @@
+---
+# time_sync_check.yml - Validate that testenv is NOT tracking the monitor NTP source.
+
+- name: Load time sync policy
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/vars/time_sync_policy.yml"
+
+- name: Initialize time sync check facts
+  ansible.builtin.set_fact:
+    time_sync_failures: []
+    time_sync_selected_source: ""
+    time_sync_last_offset_raw: ""
+    time_sync_last_offset_seconds: 0.0
+
+- name: Read chrony sources
+  ansible.builtin.command:
+    argv: [chronyc, -n, sources]
+  register: time_sync_sources
+  changed_when: false
+  failed_when: false
+
+- name: Record chronyc sources probe failure
+  ansible.builtin.set_fact:
+    time_sync_failures: "{{ time_sync_failures + ['chronyc sources probe failed'] }}"
+  when: (time_sync_sources.rc | default(1)) != 0
+
+- name: Record monitor source present in chrony sources
+  ansible.builtin.set_fact:
+    time_sync_failures: >-
+      {{
+        time_sync_failures
+        + ['monitor source present in chrony sources (' ~ time_sync_monitor_ip ~ ')']
+      }}
+  when:
+    - (time_sync_sources.rc | default(1)) == 0
+    - (time_sync_sources.stdout | default('')) is search(time_sync_monitor_ip)
+
+- name: Set selected time source address
+  ansible.builtin.set_fact:
+    time_sync_selected_source: >-
+      {{
+        (
+          time_sync_sources.stdout
+          | regex_findall('(?m)^[\^=#\?~+-]\*\s+([^\s]+)')
+          | first
+          | default('')
+        )
+        | trim
+      }}
+  when: (time_sync_sources.rc | default(1)) == 0
+
+- name: Record missing selected time source
+  ansible.builtin.set_fact:
+    time_sync_failures: "{{ time_sync_failures + ['no selected NTP source reported by chrony'] }}"
+  when:
+    - (time_sync_sources.rc | default(1)) == 0
+    - (time_sync_selected_source | length) == 0
+    - not ((time_sync_sources.stdout | default('')) is search(time_sync_monitor_ip))
+
+- name: Record monitor as selected time source (break active)
+  ansible.builtin.set_fact:
+    time_sync_failures: >-
+      {{
+        time_sync_failures
+        + [
+            'selected source is monitor (' ~ time_sync_selected_source
+            ~ ') — chaos time break is active'
+          ]
+      }}
+  when:
+    - (time_sync_sources.rc | default(1)) == 0
+    - (time_sync_selected_source | length) > 0
+    - time_sync_selected_source == time_sync_monitor_ip
+
+- name: Read chrony tracking stats
+  ansible.builtin.command:
+    argv: [chronyc, -n, tracking]
+  register: time_sync_tracking
+  changed_when: false
+  failed_when: false
+  when: (time_sync_sources.rc | default(1)) == 0
+
+- name: Record chronyc tracking probe failure
+  ansible.builtin.set_fact:
+    time_sync_failures: "{{ time_sync_failures + ['chronyc tracking probe failed'] }}"
+  when:
+    - (time_sync_sources.rc | default(1)) == 0
+    - (time_sync_tracking.rc | default(1)) != 0
+
+- name: Extract numeric offset from tracking output
+  ansible.builtin.shell: |
+    set -euo pipefail
+    chronyc -n tracking | awk '
+      /^Last offset/ {
+        for (i = 1; i <= NF; i++) {
+          if ($i ~ /^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$/) {
+            print $i
+            found = 1
+            exit
+          }
+        }
+      }
+      /^System time/ {
+        for (i = 1; i <= NF; i++) {
+          if ($i ~ /^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$/) {
+            fallback = $i
+            break
+          }
+        }
+      }
+      END {
+        if (!found && fallback != "") {
+          print fallback
+        }
+      }
+    '
+  args:
+    executable: /bin/bash
+  register: time_sync_offset_cmd
+  changed_when: false
+  failed_when: false
+  when:
+    - (time_sync_sources.rc | default(1)) == 0
+    - (time_sync_tracking.rc | default(1)) == 0
+
+- name: Set parsed offset raw value
+  ansible.builtin.set_fact:
+    time_sync_last_offset_raw: "{{ time_sync_offset_cmd.stdout | default('') | trim }}"
+  when:
+    - (time_sync_sources.rc | default(1)) == 0
+    - (time_sync_tracking.rc | default(1)) == 0
+
+- name: Record unparseable last offset
+  ansible.builtin.set_fact:
+    time_sync_failures: "{{ time_sync_failures + ['unable to parse chrony last offset'] }}"
+  when:
+    - (time_sync_sources.rc | default(1)) == 0
+    - (time_sync_tracking.rc | default(1)) == 0
+    - (time_sync_last_offset_raw | length) == 0
+
+- name: Set absolute last offset seconds
+  ansible.builtin.set_fact:
+    time_sync_last_offset_seconds: "{{ (time_sync_last_offset_raw | float | abs) }}"
+  when:
+    - (time_sync_sources.rc | default(1)) == 0
+    - (time_sync_tracking.rc | default(1)) == 0
+    - (time_sync_last_offset_raw | length) > 0
+
+- name: Record excessive time drift
+  ansible.builtin.set_fact:
+    time_sync_failures: >-
+      {{
+        time_sync_failures
+        + [
+            'offset ' ~ (time_sync_last_offset_seconds | string)
+            ~ 's exceeds max ' ~ (time_sync_max_offset_seconds | string) ~ 's'
+          ]
+      }}
+  when:
+    - (time_sync_sources.rc | default(1)) == 0
+    - (time_sync_tracking.rc | default(1)) == 0
+    - (time_sync_last_offset_raw | length) > 0
+    - (time_sync_last_offset_seconds | float) > (time_sync_max_offset_seconds | float)
+
+- name: Show time sync summary
+  ansible.builtin.debug:
+    msg:
+      - "=== Time Sync Summary ==="
+      - "Monitor IP (bad source): {{ time_sync_monitor_ip }}"
+      - "Selected source: {{ time_sync_selected_source | default('n/a', true) }}"
+      - "Last offset (s): {{ time_sync_last_offset_seconds | default('n/a', true) }}"
+      - "Failures: {{ time_sync_failures | length }}"
+
+- name: Write time sync check summary to results
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/library/write_check_summary.yml"
+  vars:
+    check_name: time_sync
+    check_summary: >-
+      {{
+        {
+          'status': 'FAIL' if (time_sync_failures | length) > 0 else 'PASS',
+          'checked': 1
+        }
+        | combine({'failures': time_sync_failures} if (time_sync_failures | length) > 0 else {})
+      }}
