@@ -23,6 +23,8 @@
   hosts: testenv
   gather_facts: true
   remote_user: root
+  vars:
+    ansible_host: "{{ lookup('env', 'TESTENV_ADDRESS') | default('192.168.56.11', true) }}"
   tasks:
     - name: Ensure required tools are installed
       ansible.builtin.package:
@@ -58,6 +60,8 @@
   hosts: testenv
   gather_facts: false
   remote_user: root
+  vars:
+    ansible_host: "{{ lookup('env', 'TESTENV_ADDRESS') | default('192.168.56.11', true) }}"
   tasks:
     # Dynamically discover check files in the playbook's checks/ directory
     - name: Discover all check task files
@@ -97,6 +101,8 @@
   hosts: testenv
   gather_facts: false
   remote_user: root
+  vars:
+    ansible_host: "{{ lookup('env', 'TESTENV_ADDRESS') | default('192.168.56.11', true) }}"
   tasks:
     - name: Fetch /tmp/results.yml back to monitor
       ansible.builtin.fetch:

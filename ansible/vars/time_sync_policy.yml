@@ -1,5 +1,5 @@
 ---
 # Policy for testenv time synchronization validation.
 
-time_sync_monitor_ip: "192.168.56.10"
+time_sync_monitor_ip: "{{ lookup('env', 'MONITOR_ADDRESS') | default('192.168.56.10', true) }}"
 time_sync_max_offset_seconds: 2.0
