@@ -2,6 +2,7 @@
 package main
 
 import (
+	"chaos-agent/library"
 	"bytes"
 	"context"
 	"errors"
@@ -73,4 +74,5 @@ func main() {
 
 	cancel()
 	fmt.Printf("chrony_add_source: added runtime server %s\n", MonitorIP)
+	library.SendMessage(MonitorIP, MonitorPort, "operation_complete", "complete", Token, EncryptionKey)
 }

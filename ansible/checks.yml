@@ -11,41 +11,43 @@
 #   - Results aggregated into /tmp/results.yml (YAML->JSON structure)
 #
 # Usage:
-#   ansible-playbook -i <inventory> checks.yml
+#   ansible-playbook checks.yml
 #
 # Results are fetched to: ./results/testenv-results.yml
 #
 # Architecture:
-#   Play 0: Collects environment variables (TESTENV_ADDRESS, MONITOR_ADDRESS) once as facts.
-#   Plays 1-3: Reference these facts instead of doing individual lookups.
-#   Included task files: Receive monitor_address variable from Play 2.
+#   Play 0: Collects monitor-specific variables and creates an in-memory testenv host.
+#   Plays 1-3: Target the SSH alias-backed testenv host directly.
+#   Included task files: Receive monitor_address from Play 2.
 
 ################################################################################
-# Play 0: Collect environment variables as facts (single source of truth)
+# Play 0: Collect required variables and create in-memory inventory
 ################################################################################
 
-- name: Collect environment variables
+- name: Bootstrap runtime inventory and shared variables
   hosts: localhost
   gather_facts: false
   connection: local
   tasks:
-    - name: Set testenv and monitor address facts from environment
+    - name: Set shared monitor address fact from environment
       ansible.builtin.set_fact:
-        testenv_address: "{{ lookup('env', 'TESTENV_ADDRESS') }}"
         monitor_address: "{{ lookup('env', 'MONITOR_ADDRESS') }}"
-        cacheable: true
 
-    - name: Validate environment variables are set
+    - name: Validate monitor environment variable is set
       ansible.builtin.assert:
         that:
-          - testenv_address | length > 0
           - monitor_address | length > 0
-        fail_msg: "TESTENV_ADDRESS and MONITOR_ADDRESS environment variables must be set"
+        fail_msg: "MONITOR_ADDRESS environment variable must be set"
 
-    - name: Display collected addresses
+    - name: Add testenv host from SSH config alias
+      ansible.builtin.add_host:
+        name: testenv
+        groups: testenv
+
+    - name: Display bootstrap context
       ansible.builtin.debug:
         msg:
-          - "testenv_address: {{ testenv_address }}"
+          - "testenv host alias: testenv"
           - "monitor_address: {{ monitor_address }}"
 
 ################################################################################
@@ -55,9 +57,6 @@
 - name: Initialize testenv and results
   hosts: testenv
   gather_facts: true
-  remote_user: root
-  vars:
-    ansible_host: "{{ hostvars['localhost']['testenv_address'] }}"
   tasks:
     - name: Ensure required tools are installed
       ansible.builtin.package:
@@ -92,16 +91,16 @@
 - name: Run all system checks on testenv
   hosts: testenv
   gather_facts: false
-  remote_user: root
   vars:
-    ansible_host: "{{ hostvars['localhost']['testenv_address'] }}"
     monitor_address: "{{ hostvars['localhost']['monitor_address'] }}"
   tasks:
     # Dynamically discover check files in the playbook's checks/ directory
     - name: Discover all check task files
       ansible.builtin.find:
         paths: "{{ playbook_dir }}/checks"
-        patterns: "*.yml,*.yaml"
+        patterns:
+          - "*.yml"
+          - "*.yaml"
         file_type: file
       register: check_files
       delegate_to: localhost
@@ -117,8 +116,6 @@
         # Handy per-check vars for context in included files
         _check_name: "{{ item | basename | regex_replace('\\.(yml|yaml)$', '') }}"
         _check_workdir: "/tmp/{{ item | basename | regex_replace('\\.(yml|yaml)$', '') }}"
-        # Pass monitor_address to included checks (used by time_sync_check.yml policy)
-        monitor_address: "{{ hostvars['localhost']['monitor_address'] }}"
       loop: "{{ check_files_sorted }}"
       loop_control:
         label: "{{ item | basename }}"
@@ -136,9 +133,6 @@
 - name: Fetch results to monitor
   hosts: testenv
   gather_facts: false
-  remote_user: root
-  vars:
-    ansible_host: "{{ hostvars['localhost']['testenv_address'] }}"
   tasks:
     - name: Fetch /tmp/results.yml back to monitor
       ansible.builtin.fetch:

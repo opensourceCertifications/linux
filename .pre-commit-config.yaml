@@ -37,7 +37,7 @@ repos:
     hooks:
       - id: ansible-lint
         name: ansible-lint (playbooks & roles)
-        files: ^monitor/ansible/.*\.(yml|yaml)$
+        files: ^ansible/.*\.(yml|yaml)$
         exclude: ^ansible/results/.*\.(yml|yaml)$
         additional_dependencies:
           - ansible-core>=2.15

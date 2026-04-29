@@ -16,7 +16,7 @@
 
 - name: Build 'existing' dict (or empty)
   ansible.builtin.set_fact:
-    _existing: "{}"
+    _existing: {}
 
 - name: Parse existing YAML
   ansible.builtin.set_fact:
@@ -41,5 +41,5 @@
     dest: /tmp/results.yml
     content: "{{ _merged | to_nice_yaml(explicit_start=True) }}"
     mode: "0644"
-    backup: yes
+    backup: true
   when: (new_items | default([]) | length) > 0

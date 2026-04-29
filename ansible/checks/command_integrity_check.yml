@@ -23,12 +23,24 @@
         continue
       fi
 
-      find "$dir" -maxdepth 1 \( -type f -o -type l \) -print0 2>/dev/null || true
+      if [[ "{{ command_integrity_find_recurse | default(false) | bool }}" == "True" ]]; then
+        find "$dir" \( -type f -o -type l \) -print0 2>/dev/null || true
+      else
+        find "$dir" -maxdepth 1 \( -type f -o -type l \) -print0 2>/dev/null || true
+      fi
     done \
       | xargs -0 -r -n1 -P {{ command_integrity_parallel_workers | int }} readlink -f 2>/dev/null \
       | awk 'NF' \
       | while IFS= read -r path; do
-          [[ -f "$path" && -x "$path" ]] && printf '%s\n' "$path"
+          if [[ ! -f "$path" ]]; then
+            continue
+          fi
+
+          if [[ "{{ command_integrity_executables_only | default(true) | bool }}" == "True" ]]; then
+            [[ -x "$path" ]] && printf '%s\n' "$path"
+          else
+            printf '%s\n' "$path"
+          fi
         done \
       | sort -u
   args:

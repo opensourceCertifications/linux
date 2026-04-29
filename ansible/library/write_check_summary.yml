@@ -16,7 +16,7 @@
 
 - name: Build existing dict (or empty)
   ansible.builtin.set_fact:
-    _sum_existing: "{}"
+    _sum_existing: {}
 
 - name: Parse existing YAML
   ansible.builtin.set_fact:
@@ -28,4 +28,4 @@
     dest: /tmp/results.yml
     content: "{{ (_sum_existing | combine({check_name: check_summary})) | to_nice_yaml(explicit_start=True) }}"
     mode: "0644"
-    backup: yes
+    backup: true

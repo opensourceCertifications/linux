@@ -5,6 +5,13 @@
   ansible.builtin.include_vars:
     file: "{{ playbook_dir }}/vars/time_sync_policy.yml"
 
+- name: Validate required time sync policy values
+  ansible.builtin.assert:
+    that:
+      - (time_sync_monitor_ip | default('') | trim | length) > 0
+      - (time_sync_max_offset_seconds | default('') | string | length) > 0
+    fail_msg: "time_sync_monitor_ip and time_sync_max_offset_seconds must be defined"
+
 - name: Initialize time sync check facts
   ansible.builtin.set_fact:
     time_sync_failures: []
@@ -18,6 +25,19 @@
   register: time_sync_sources
   changed_when: false
   failed_when: false
+
+- name: Detect monitor source presence in chrony sources output
+  ansible.builtin.set_fact:
+    time_sync_monitor_source_present: >-
+      {{
+        (
+          time_sync_sources.stdout
+          | default('')
+          | regex_findall('(?m)^[\^=#\?~+-][\*\+\-\?\s]*\s+' ~ (time_sync_monitor_ip | regex_escape) ~ '(?:\s|$)')
+          | length
+        ) > 0
+      }}
+  when: (time_sync_sources.rc | default(1)) == 0
 
 - name: Record chronyc sources probe failure
   ansible.builtin.set_fact:
@@ -33,7 +53,7 @@
       }}
   when:
     - (time_sync_sources.rc | default(1)) == 0
-    - (time_sync_sources.stdout | default('')) is search(time_sync_monitor_ip)
+    - time_sync_monitor_source_present | default(false)
 
 - name: Set selected time source address
   ansible.builtin.set_fact:
@@ -55,7 +75,7 @@
   when:
     - (time_sync_sources.rc | default(1)) == 0
     - (time_sync_selected_source | length) == 0
-    - not ((time_sync_sources.stdout | default('')) is search(time_sync_monitor_ip))
+    - not (time_sync_monitor_source_present | default(false))
 
 - name: Record monitor as selected time source (break active)
   ansible.builtin.set_fact:
@@ -88,44 +108,26 @@
     - (time_sync_tracking.rc | default(1)) != 0
 
 - name: Extract numeric offset from tracking output
-  ansible.builtin.shell: |
-    set -euo pipefail
-    chronyc -n tracking | awk '
-      /^Last offset/ {
-        for (i = 1; i <= NF; i++) {
-          if ($i ~ /^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$/) {
-            print $i
-            found = 1
-            exit
-          }
-        }
-      }
-      /^System time/ {
-        for (i = 1; i <= NF; i++) {
-          if ($i ~ /^[+-]?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$/) {
-            fallback = $i
-            break
-          }
-        }
-      }
-      END {
-        if (!found && fallback != "") {
-          print fallback
-        }
-      }
-    '
-  args:
-    executable: /bin/bash
-  register: time_sync_offset_cmd
-  changed_when: false
-  failed_when: false
-  when:
-    - (time_sync_sources.rc | default(1)) == 0
-    - (time_sync_tracking.rc | default(1)) == 0
-
-- name: Set parsed offset raw value
   ansible.builtin.set_fact:
-    time_sync_last_offset_raw: "{{ time_sync_offset_cmd.stdout | default('') | trim }}"
+    time_sync_last_offset_raw: >-
+      {{
+        (
+          time_sync_tracking.stdout
+          | regex_findall('(?im)^Last offset\s*:\s*([+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)')
+          | first
+          | default('')
+        )
+        | default(
+            (
+              time_sync_tracking.stdout
+              | regex_findall('(?im)^System time\s*:\s*([+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)')
+              | first
+              | default('')
+            ),
+            true
+          )
+        | trim
+      }}
   when:
     - (time_sync_sources.rc | default(1)) == 0
     - (time_sync_tracking.rc | default(1)) == 0
