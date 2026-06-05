@@ -1,0 +1,7 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "vagrant": true,
+        "tee": true,
+        "timeout": true
+    }
+}

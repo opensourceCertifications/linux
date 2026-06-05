@@ -1,0 +1,14 @@
+okay, let's start again, so. you can test this by sshing into the monitor vm, cd to /vagrant/go and running go commands from there. I've reset the changes we've made because I gave you bad instructions and the wrong thing got done, my bad. So at the moment here' s my error:
+[20:57] aidan@aidan-Precision-3571:~/git/opensourceCertifications/linux:(60)$ vagrant ssh monitor
+[fog][WARNING] Unrecognized arguments: libvirt_ip_command
+Last login: Wed Mar 18 20:55:30 2026 from 192.168.121.1
+[vagrant@monitor ~]$ cd /vagrant/go
+[vagrant@monitor go]$ go run .
+Starting fake NTP server with offset 0s
+failed to setup nft redirect: nft add table: exit status 1: Error: Could not process rule: Operation not permitted
+add table ip ntp_nat
+^^^^^^^^^^^^^^^^^^^^^
+
+[vagrant@monitor go]$
+
+this is because main.go sets up a time source server, without actually fixing anything in the server, it's setup is intentional, I need that part, just that part, to run as root. There is no password for root so you can do the go equivalent of sudo blaa and you'll be fine
